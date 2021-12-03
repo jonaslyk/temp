@@ -71,7 +71,7 @@ template< typename... Ts > overloaded( Ts... )->overloaded< Ts... >;
 
 template<typename T, typename S> struct life { S s; life(T t, S s) : s{ s } { t(); } ~life() { s(); }};
 template<typename T, typename S> life(T,S)->life<T,S>;
-#ifdef _DEBUG
+#ifdef  _DEBUG
 static const auto  orgCout = std::cout.rdbuf( []() {    struct streamfwd : public std::streambuf{
                                                             virtual int_type overflow( int_type c = EOF ) {
                                                                char str[]{ c, 0x00 };
@@ -150,10 +150,10 @@ struct request_response {
 
       THROW_ON_ERR(HttpSendHttpResponse(h, responseTo, (responsetext.size() ? HTTP_SEND_RESPONSE_FLAG_MORE_DATA : 0), &response, NULL, NULL, NULL, 0, NULL, NULL));
 
-     if( responsetext.size() ){
+      if( responsetext.size() ){
          HTTP_DATA_CHUNK dataChunk{ HttpDataChunkFromMemory, (void*)responsetext.c_str(), responsetext.size() } ;
          THROW_ON_ERR( HttpSendResponseEntityBody(h, responseTo, 0, 1, &dataChunk, NULL, NULL, 0, NULL, NULL) );
-     }
+      }
    }
 }; 
 
@@ -161,7 +161,7 @@ template< typename T >
 struct httpd {
    const std::wstring folder, port, hostname;
    HANDLE h;
-   auto  url() {   const std::wstring curl{ L"http://"s + hostname + ( ( port != L""s ) ? L":"s : L""s ) + port + L"/"s + folder}; return curl; }
+   auto  url() { return std::wstring{ L"http://"s + hostname + ( ( port != L""s ) ? L":"s : L""s ) + port + L"/"s + folder}; }
    httpd( std::wstring hostname, std::wstring folder, std::wstring port , T t) : hostname{ hostname }, folder{ folder }, port{ port }
    {
       THROW_ON_ERR(HttpCreateHttpHandle(&h, 0));
@@ -178,7 +178,11 @@ struct httpd {
 }; 
 template<typename T> httpd( std::wstring, std::wstring, std::wstring, T )->httpd< T >;
 
+#ifdef  _DEBUG
 int WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd )
+#else
+int main()
+#endif
 try{
    httpd r{ L"localhost", L"" , L"9980", [&]
       ( request_response  r )
