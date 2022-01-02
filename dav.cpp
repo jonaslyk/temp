@@ -469,7 +469,7 @@ struct mirrordir {
       primary{ ntObjDir::make({.ObjectName = primaryPath}, secondary.getHandle(), 0) }     {
       for (const auto& f : path.enumDir()) {
          forwarders.emplace_back(
-            ntSymLink::make({ .RootDirectory = secondary.getHandle(), .ObjectName = wstr{  f.filename } }, wstr{ L"\\global??\\"s + wstr{path.c_str()} + L"\\" + f.filename }.getUni())
+            ntSymLink::make({ .RootDirectory = secondary.getHandle(), .ObjectName = wstr{  f.filename } }, wstr{ L"\\global??\\"s + wstr{path.c_str()} +   f.filename }.getUni())
          );
       }
    }
