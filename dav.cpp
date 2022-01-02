@@ -34,7 +34,7 @@ struct abortError : public exception {
    using exception::exception; abortError(string e) : exception{ e.c_str() } { cout << e << endl; }
    abortError(wstring w) : abortError{ string{ w.begin(), w.end() } } {}
 };
-#define THROW_ON_ERR( CODE ) { auto RET =(CODE); if(!NT_SUCCESS(RET)){ __debugbreak(); auto err = wstring{ _com_error{ (HRESULT) RtlNtStatusToDosError(RET) }.ErrorMessage() };               \
+#define THROW_ON_ERR( CODE ) { auto RET =(CODE); if(!NT_SUCCESS(RET)){ auto err = wstring{ _com_error{ (HRESULT) RtlNtStatusToDosError(RET) }.ErrorMessage() };               \
                                                                        throw abortError{ ( string{ TOKENIZE(CODE) } + " returned: "s + string{ err.begin(), err.end() } ) };  \
                                                                      }                                                                                                        \
                              };
@@ -173,9 +173,7 @@ namespace processes {
    };
 }
 using namespace processes;
-//½ /*https://stackoverflow.com/questions/56968834/setwindowshookex-to-determine-when-a-window-is-deactivated*\/
-
-
+ 
 namespace NT
 {
 #ifndef INVALID_HANDLE_VALUE  
@@ -226,9 +224,9 @@ namespace NT
       static auto make(params p, REQUIREDARGS ... ra) {
          using syscallSignature = NTSTATUS(WINAPI*)(PHANDLE, ACCESS_MASK, OBJECT_ATTRIBUTES*, REQUIREDARGS ...);                                                                                     \
          const static syscallSignature ntFunc = (syscallSignature)GetProcAddress(GetModuleHandle(L"ntdll.dll"), str{ NTFUNC.value }.c_str());
-         OBJECT_ATTRIBUTES   xx{ sizeof(OBJECT_ATTRIBUTES), p.RootDirectory,p.ObjectName.getUni() ,p.Attributes,0,0 };
+         OBJECT_ATTRIBUTES oa{ sizeof(OBJECT_ATTRIBUTES), p.RootDirectory,p.ObjectName.getUni() ,p.Attributes,0,0 };
          HANDLE h;
-         THROW_ON_ERR(ntFunc(&h, p.DesiredAccess, &xx, forward< REQUIREDARGS>(ra)...));
+         THROW_ON_ERR(ntFunc(&h, p.DesiredAccess, &oa, forward< REQUIREDARGS>(ra)...));
          return NTObj{ h };
       }
 
