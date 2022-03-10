@@ -1,9 +1,9 @@
 #pragma D option quiet
 #pragma D option destructive
-#pragma D option strsize=256
-#pragma D option dynvarsize=512m
-#pragma D option bufsize=512m
-typedef struct NSTR{ char str[512]; } NSTR; typedef struct WSTR{ char str[256]; } WSTR; typedef union STR{ char str[512]; wchar_t wstr[256];} STR;
+#pragma D option strsize = 256
+#pragma D option dynvarsize = 512m
+#pragma D option bufsize = 512m
+typedef struct NSTR{ char str[512]; } NSTR; typedef struct WSTR{ char str[256]; } WSTR; typedef union STR{ char str[512]; wchar_t wstr[256]; } STR;
 inline unsigned int offsetctrldev = 0x22690;
 inline uintptr_t dtmem = (uintptr_t) ( ( (uintptr_t) &dtrace`FbtpControlDeviceCallbacks ) - offsetctrldev ) ;
 inline int16_t* argtypes = (int16_t*)( dtmem + (uintptr_t)0x22D30 );
