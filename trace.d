@@ -217,7 +217,7 @@ translator argval < int argi > {
 translator struct typeAndVal < int argi > { val = xlate< argval >( argi - 1 ).val; type = ArgTypeMap[ probefunc , argi ]; };			
 inline uint64_t argc =  argCount[probefunc] 	;	
 	
-syscall::*:entry /started && probefunc == "NtDuplicateObject" /
+syscall::*:entry /started/
 {	
 	printf( "\n%-16s( %5s:%-5s ) - %-28s ( %s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws )\n",execname, lltostr(pid), lltostr(tid), probefunc, 
 				(argc > 0) ? xlate< STR >( *xlate< typeAndVal* >( 1 ) ).str : "" ,(argc > 0) ?  xlate< WSTR >( *xlate< typeAndVal* >( 1 ) ).wstr : wEmpty.wstr  , (argc > 1) ? " , " : "" ,
