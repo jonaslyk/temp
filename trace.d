@@ -3,7 +3,7 @@
 #pragma D option strsize=256
 #pragma D option dynvarsize=512m
 #pragma D option bufsize=512m
-typedef struct NSTR{ char str[512]; } NSTR; typedef struct WSTR{ wchar_t wstr[256]; } WSTR; typedef struct STR{ char str[512];  } STR;
+typedef struct NSTR{ char str[512]; } NSTR; typedef struct WSTR{ wchar_t wstr[256]; } WSTR; typedef struct STR{ char str[512];char poststr[512];  } STR;
 inline unsigned int offsetctrldev = 0x22690;
 inline uintptr_t dtmem = (uintptr_t) ( ( (uintptr_t) &dtrace`FbtpControlDeviceCallbacks ) - offsetctrldev ) ;
 inline int16_t* argtypes = (int16_t*)( dtmem + (uintptr_t)0x22D30 );
@@ -16,7 +16,7 @@ string ArgTypeMap[ string, uint16_t ] ;
 uint16_t argCount[string]; 
 const WSTR wEmpty  ;
 inline uintptr_t MAX_USER = 0xFFFF080000000000 ;
-inline uint64_t debug =1;
+inline uint64_t debug =0;
 
 typedef uint16_t argnr;
 typedef uint64_t mask;
@@ -112,8 +112,16 @@ BEGIN{ tickcount = -1; syscallidx = -1; syscallparamidx = 1 ;
 	maskNames["ACCESS_MASK_WORKER_FACTORY",0x00010000 ] = "DELETE " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x00020000 ] = "READ_CONTROL " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x00100000 ] = "SYNCHRONIZE " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x00040000 ] = "WRITE_DAC " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x00080000 ] = "WRITE_OWNER " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x20000000 ] = "GENERIC_EXECUTE " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x80000000 ] = "GENERIC_READ " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x40000000 ] = "GENERIC_WRITE " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x02000000 ] = "MAXIMUM " ;maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x00000001 ] = "WORKER_FACTORY_ALL_ACCESS " ; maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x00000001 ] = "WORKER_FACTORY_RELEASE_WORKER " ;maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x0010 ] = "WORKER_FACTORY_READY_WORKER " ;maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x0002 ] = "WORKER_FACTORY_WAIT " ;maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x0004 ] = "WORKER_FACTORY_SET_INFORMATION " ;maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x0008 ] = "WORKER_FACTORY_QUERY_INFORMATION " ;maskNames[ "ACCESS_MASK_WORKER_FACTORY",0x0020 ] = "WORKER_FACTORY_SHUTDOWN " ;
 	maskNames["ACCESS_MASK_DESKTOP",0x00010000 ] = "DELETE " ; maskNames[ "ACCESS_MASK_DESKTOP",0x00020000 ] = "READ_CONTROL " ; maskNames[ "ACCESS_MASK_DESKTOP",0x00100000 ] = "SYNCHRONIZE " ; maskNames[ "ACCESS_MASK_DESKTOP",0x00040000 ] = "WRITE_DAC " ; maskNames[ "ACCESS_MASK_DESKTOP",0x00080000 ] = "WRITE_OWNER " ; maskNames[ "ACCESS_MASK_DESKTOP",0x0040 ] = "DESKTOP_ENUMERATE " ;maskNames[ "ACCESS_MASK_DESKTOP",0x00000001 ] = "DESKTOP_READOBJECTS " ;maskNames[ "ACCESS_MASK_DESKTOP",0x0020 ] = "DESKTOP_JOURNALPLAYBACK " ;maskNames[ "ACCESS_MASK_DESKTOP",0x0080 ] = "DESKTOP_WRITEOBJECTS " ;maskNames[ "ACCESS_MASK_DESKTOP",0x00000002 ] = "DESKTOP_CREATEWINDOW " ;maskNames[ "ACCESS_MASK_DESKTOP",0x0004 ] = "DESKTOP_CREATEMENU " ;maskNames[ "ACCESS_MASK_DESKTOP",0x0008 ] = "DESKTOP_HOOKCONTROL " ;maskNames[ "ACCESS_MASK_DESKTOP",0x0010 ] = "DESKTOP_JOURNALRECORD " ;maskNames[ "ACCESS_MASK_DESKTOP",0x0100 ] = "DESKTOP_SWITCHDESKTOP " ;
 	ArgTypeMap["NtDuplicateObject",7] = "DUPLICATE_MASK";ArgTypeMap["NtDuplicateObject",6] = "OBJ_ATTR_ATTR";ArgTypeMap["NtOpenEvent",2] = "ACCESS_MASK_EVENT"; ArgTypeMap["NtLoadKeyEx",6] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtCreateKey",2] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtOpenRegistryTransaction",2] = "ACCESS_MASK"; ArgTypeMap["NtCreateThread",2] = "ACCESS_MASK_THREAD"; ArgTypeMap["NtCreateUserProcess",3] = "ACCESS_MASK_PROCESS"; ArgTypeMap["NtCreateUserProcess",4] = "ACCESS_MASK_THREAD"; ArgTypeMap["NtOpenSection",2] = "ACCESS_MASK_SECTION"; ArgTypeMap["NtOpenKeyTransactedEx",2] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtDuplicateToken",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtOpenKeyEx",2] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtCreateKeyTransacted",2] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtCreateEventPair",2] = "ACCESS_MASK_EVENT"; ArgTypeMap["NtCreateToken",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtOpenThread",2] = "ACCESS_MASK_THREAD"; ArgTypeMap["NtOpenThreadTokenEx",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtCreateWorkerFactory",2] = "ACCESS_MASK_WORKER_FACTORY"; ArgTypeMap["NtOpenDirectoryObject",2] = "ACCESS_MASK_OBJ_DIR"; ArgTypeMap["NtCreateLowBoxToken",3] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtOpenKey",2] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtCreateFile",2] = "ACCESS_MASK_FILE"; ArgTypeMap["NtCreateDirectoryObject",2] = "ACCESS_MASK_OBJ_DIR"; ArgTypeMap["NtOpenFile",2] = "ACCESS_MASK_FILE"; ArgTypeMap["NtCreateSemaphore",2] = "ACCESS_MASK_SEMAPHORE"; ArgTypeMap["NtGetNextThread",3] = "ACCESS_MASK_THREAD"; ArgTypeMap["NtOpenThreadToken",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtOpenProcessToken",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtOpenProcessTokenEx",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtCreateDirectoryObjectEx",2] = "ACCESS_MASK_OBJ_DIR"; ArgTypeMap["NtOpenProcess",2] = "ACCESS_MASK_PROCESS"; ArgTypeMap["NtOpenKeyTransacted",2] = "ACCESS_MASK_REG_KEY"; ArgTypeMap["NtCreateProcess",2] = "ACCESS_MASK_PROCESS"; ArgTypeMap["NtCreateSection",2] = "ACCESS_MASK_SECTION"; ArgTypeMap["NtCreateThreadEx",2] = "ACCESS_MASK_THREAD"; ArgTypeMap["NtCreateEvent",2] = "ACCESS_MASK_EVENT"; ArgTypeMap["NtCreateSymbolicLinkObject",2] = "ACCESS_MASK_SYM_LINK"; ArgTypeMap["NtCreateTokenEx",2] = "ACCESS_MASK_TOKEN"; ArgTypeMap["NtAlpcOpenSenderProcess",5] = "ACCESS_MASK_PROCESS"; ArgTypeMap["NtCreateProcessEx",2] = "ACCESS_MASK_PROCESS"; ArgTypeMap["NtOpenEventPair",2] = "ACCESS_MASK_EVENT"; ArgTypeMap["NtOpenSemaphore",2] = "ACCESS_MASK_SEMAPHORE"; ArgTypeMap["NtOpenSymbolicLinkObject",2] = "ACCESS_MASK_SYM_LINK";
-}  
-
+} 	
+	  /* typedef enum _AUDIT_EVENT_TYPE {  AuditEventObjectAccess = 0,      AuditEventDirectoryServiceAccess = 1,    } AUDIT_EVENT_TYPE;
+typedef enum _DIRECTORY_NOTIFY_INFORMATION_CLASS {  DirectoryNotifyInformation = 1,      DirectoryNotifyExtendedInformation = 2,    } DIRECTORY_NOTIFY_INFORMATION_CLASS;
+   typedef enum _HARDERROR_RESPONSE_OPTION {  OptionAbortRetryIgnore = 0,      OptionOk = 1,      OptionOkCancel = 2,      OptionRetryCancel = 3,      OptionYesNo = 4,      OptionYesNoCancel = 5,      OptionShutdownSystem = 6,      OptionOkNoWait = 7,      OptionCancelTryContinue = 8,    } HARDERROR_RESPONSE_OPTION;
+typedef enumenum _KTMOBJECT_TYPE {  KTMOBJECT_TRANSACTION = 0,      KTMOBJECT_TRANSACTION_MANAGER = 1,      KTMOBJECT_RESOURCE_MANAGER = 2,      KTMOBJECT_ENLISTMENT = 3,      KTMOBJECT_INVALID = 4,    } KTMOBJECT_TYPE;
+typedef enum _LPC_TYPE {  LPC_INIT,   LPC_REQUEST,      LPC_REPLY,      LPC_DATAGRAM,      LPC_LOST_REPLY,      LPC_PORT_CLOSED,      LPC_CLIENT_DIED,      LPC_EXCEPTION,      LPC_DEBUG_EVENT,      LPC_ERROR_EVENT,      LPC_CONNECTION_REQUEST,      LPC_CONNECTION_REPLY,      LPC_CANCELED,      LPC_UNREGISTER_PROCESS,    } LPC_TYPE;
+typedef enum _SHUTDOWN_ACTION {  ShutdownNoReboot = 0,      ShutdownReboot = 1,      ShutdownPowerOff = 2,      ShutdownRebootForRecovery = 3,    } SHUTDOWN_ACTION;
+typedef enum _SYSDBG_COMMAND {  SysDbgQueryModuleInformation = 0,      SysDbgQueryTraceInformation = 1,      SysDbgSetTracepoint = 2,      SysDbgSetSpecialCall = 3,      SysDbgClearSpecialCalls = 4,      SysDbgQuerySpecialCalls = 5,      SysDbgBreakPoint = 6,      SysDbgQueryVersion = 7,      SysDbgReadVirtual = 8,      SysDbgWriteVirtual = 9,      SysDbgReadPhysical = 10,      SysDbgWritePhysical = 11,      SysDbgReadControlSpace = 12,      SysDbgWriteControlSpace = 13,      SysDbgReadIoSpace = 14,      SysDbgWriteIoSpace = 15,      SysDbgReadMsr = 16,      SysDbgWriteMsr = 17,      SysDbgReadBusData = 18,      SysDbgWriteBusData = 19,      SysDbgCheckLowMemory = 20,      SysDbgEnableKernelDebugger = 21,      SysDbgDisableKernelDebugger = 22,      SysDbgGetAutoKdEnable = 23,      SysDbgSetAutoKdEnable = 24,      SysDbgGetPrintBufferSize = 25,      SysDbgSetPrintBufferSize = 26,      SysDbgGetKdUmExceptionEnable = 27,      SysDbgSetKdUmExceptionEnable = 28,      SysDbgGetTriageDump = 29,      SysDbgGetKdBlockEnable = 30,      SysDbgSetKdBlockEnable = 31,      SysDbgRegisterForUmBreakInfo = 32,      SysDbgGetUmBreakPid = 33,      SysDbgClearUmBreakPid = 34,      SysDbgGetUmAttachPid = 35,      SysDbgClearUmAttachPid = 36,      SysDbgGetLiveKernelDump = 37,      SysDbgKdPullRemoteFile = 38,    } SYSDBG_COMMAND;
+ -*/	
+   
 :::tick-100/  ++tickcount < maxTicks   /
 {
 	if( ++syscallparamidx > syscallinfos[ syscallidx ].argcount ){ 
@@ -131,8 +139,8 @@ typedef struct _OBJECT_ATTRIBUTES { ULONG Length; HANDLE RootDirectory; UNICODE_
 typedef union  _LARGE_INTEGER { struct { DWORD LowPart; LONG HighPart; } DUMMYSTRUCTNAME; struct { DWORD LowPart; LONG HighPart; } u; LONGLONG QuadPart;} LARGE_INTEGER;
 typedef struct _UNKNOWN{ char str[64]; } UNKNOWN;
 typedef struct _LUID { DWORD LowPart; LONG HighPart;} LUID, *PLUID;
+
 typedef struct _MASK_TYPE_VAL { string type; uint64_t value;} MASK_TYPE_VAL;
- 
 translator STR < MASK_TYPE_VAL  _ > 		{ 	str =   (
 															a  = strjoin(	 maskNames[ _.type, (_.value & 1 ) * 1 ], maskNames[_.type, (_.value & 2 ) * 2 ])      ,
 															b  = strjoin(a,  maskNames[ _.type, (_.value & 4 ) * 4 ]), c = strjoin(b, maskNames[ _.type, (_.value & 8 ) * 8 ]), d = strjoin(c, maskNames[ _.type, (_.value & 16 ) * 16 ]), e = strjoin(d, maskNames[_.type, (_.value & 32 ) * 32 ]) ,
@@ -170,23 +178,35 @@ translator STR < ULONG _ > 					{ 	str =  lltostr( (uint32_t)_ , 10 );	};
 translator STR < BOOLEAN _ > 				{ 	str =  _ ? "true" : "false";	};
 translator STR < IO_STATUS_BLOCK* _ > 		{ 	str  = lltostr( (uint64_t)_ , 16 );  }; 
 translator STR < PHANDLE _ > 				{ 	str =  lltostr( (int64_t)_ , 16 );	};  
-translator WSTR < UNICODE_STRING  _ > 		{ 	wstr = ((WSTR*)copyin( _.Buffer, _.Length ))->wstr ; }; 
-translator WSTR < UNICODE_STRING* _ > 		{ 	wstr = ( (uintptr_t)_ > MAX_USER ) && ( (uintptr_t)_->Buffer > MAX_USER ) ?   ((WSTR*) _->Buffer)->wstr 
+translator WSTR < UNICODE_STRING  _ > 		{ 	wstr = _.Buffer ? ((WSTR*)copyin( _.Buffer, _.Length +4))->wstr : wEmpty.wstr; }; 
+translator WSTR < UNICODE_STRING* _ > 		{ 	wstr = ( (uintptr_t)_ > MAX_USER ) && ( (uintptr_t)_->Buffer > MAX_USER ) ? ( self->buf=(void*)alloca( ( (_->Length  ) +4)), bcopy( (void*)_->Buffer, self->buf, _->Length   ), ((WSTR*)self->buf)->wstr )
 			 																			:
-			 																			 xlate< WSTR* >( * ( UNICODE_STRING* ) copyin( (uintptr_t)_ , sizeof( UNICODE_STRING ) ) )->wstr  ;
+			 																			_  ? xlate< WSTR* >( * ( UNICODE_STRING* ) copyin( (uintptr_t)_ , sizeof( UNICODE_STRING ) ) )->wstr : wEmpty.wstr;
 											};			 																
-translator WSTR < OBJECT_ATTRIBUTES* _> 	{ wstr = ( (uintptr_t)_ > MAX_USER ) && ( (uintptr_t)_->ObjectName > MAX_USER) && ( (uintptr_t) _->ObjectName->Buffer > MAX_USER) ?   ( 	
-																								self->buf=(void*)alloca( ( (_->ObjectName->Length * 2) +4)), 
-																								bcopy( (void*)_->ObjectName->Buffer, self->buf, _->ObjectName->Length   ),
-																								((WSTR*) self->buf)->wstr 
-																							)
-																							: 
-																							( (uintptr_t)_ == 0 ) ? wEmpty.wstr :
-																													xlate<WSTR*>( ((OBJECT_ATTRIBUTES*)copyin( (uintptr_t)_ , sizeof( OBJECT_ATTRIBUTES ) ))->ObjectName )->wstr 
+translator WSTR < OBJECT_ATTRIBUTES* _> 	{ wstr = ( (uintptr_t)_ > MAX_USER )   ?   	xlate<WSTR*>(  _->ObjectName )->wstr 
+																						: 
+																						( (uintptr_t)_ == 0 ) ? wEmpty.wstr :
+																										 xlate<WSTR*>( ((OBJECT_ATTRIBUTES*)copyin( (uintptr_t)_ , sizeof( OBJECT_ATTRIBUTES ) ))->ObjectName )->wstr  
 														 ;
 												   
 											};
- self MASK_TYPE_VAL* mv;
+											
+translator STR < OBJECT_ATTRIBUTES _> 		{ 	str =  (	length = "{ Length = ", length = strjoin( length, lltostr(_.Length) ),str = strjoin( length ,", "),
+															rootdirectory = "RootDirectory = ", yy= lltostr((uint64_t)_.RootDirectory) , rootdirectory = strjoin(rootdirectory, yy ), str=strjoin(str,rootdirectory),
+															strjoin(str , ", ObjectName = \"")
+													   );
+												poststr = (	poststr = "\" , Attributes = ", poststr = strjoin(poststr,  lltostr(_.Attributes) ), 
+															poststr = strjoin(poststr, " , SecurityDescriptor = "),poststr = strjoin(poststr, lltostr( (uint64_t)_.SecurityDescriptor, 16 ) ),
+															poststr = strjoin(poststr, " , SecurityQualityOfService = "),poststr = strjoin(poststr, lltostr( (uint64_t)_.SecurityQualityOfService, 16 ) ),
+															poststr = strjoin(poststr,  " }" ), poststr );
+											};
+translator STR < OBJECT_ATTRIBUTES* _> 		{ 	str = ( (uintptr_t)_ > MAX_USER )   ?  xlate<STR*>( *_ )->str :	_ ?   xlate<STR* >( *((OBJECT_ATTRIBUTES*)copyin( (uintptr_t)_ , sizeof( OBJECT_ATTRIBUTES ) )))->str   : ""; 
+												poststr = ( (uintptr_t)_ > MAX_USER )   ?  xlate<STR*>( *_ )->poststr :	_ ? xlate<STR*>( *((OBJECT_ATTRIBUTES*)copyin( (uintptr_t)_ , sizeof( OBJECT_ATTRIBUTES ) )))->poststr : ""; 
+											};
+											
+																						
+											
+self MASK_TYPE_VAL* mv;
 typedef struct typeAndVal{ uintptr_t val; string type; } typeAndVal; 
 translator STR < struct typeAndVal t > {
 	str =  ( self->preType =  strjoin( t.type , " = " ), self->preDebug = strjoin( lltostr( (uint64_t)t.val,16) , " "), self->pre = strjoin( self->preType, debug ? self->preDebug : "" ),
@@ -196,12 +216,20 @@ translator STR < struct typeAndVal t > {
 						( t.type == "PLARGE_INTEGER" ) ? strjoin( self->pre, xlate< STR* >( ( LARGE_INTEGER* ) t.val )->str) 																													:
 							( t.type == "PIO_STATUS_BLOCK" ) ? strjoin( self->pre, xlate< STR* >( ( IO_STATUS_BLOCK* ) t.val )->str ) 																											:  
 								( enumNames[ t.type , 0 ] != "" ) ? strjoin( self->pre, enumNames[ t.type , t.val] ) 																															:
-									( masks[ t.type ] ) ? strjoin( self->pre,  ( self->mv=(MASK_TYPE_VAL*)alloca(sizeof(MASK_TYPE_VAL)),self->mv->type = t.type, self->mv->value = (uint32_t) t.val , xlate< STR*  >( * self->mv )->str ) )    	: 
+									( masks[ t.type ] ) ? strjoin( self->pre,  ( 	self->mv = (MASK_TYPE_VAL*)alloca( sizeof( MASK_TYPE_VAL ) ), 
+																					self->mv->type = t.type,
+																					self->mv->value = (uint32_t) t.val ,
+																					xlate< STR*  >( * self->mv )->str 
+																				) 
+																 )    																																											: 
 										( t.type == "ULONG" ) ? strjoin( self->pre, xlate< STR* >( ( ULONG ) t.val )->str )  																													:
 											( t.type == "BOOLEAN" ) ? strjoin( self->pre, xlate< STR* >( ( BOOLEAN ) t.val )->str )  																											:
 												( t.type == "PUNICODE_STRING" ) ? self-> pre																																					:
-													( t.type == "POBJECT_ATTRIBUTES" ) ? self-> pre																																				:
-														strjoin( self->pre, xlate< STR* >( (UNKNOWN*) t.val )->str ) ); 	
+													( t.type == "POBJECT_ATTRIBUTES" ) ?   strjoin( self->pre, xlate< STR* >( ( OBJECT_ATTRIBUTES* ) t.val )->str )  																			:
+														strjoin( self->pre, xlate< STR* >( (UNKNOWN*) t.val )->str ) ); 
+	poststr = ( t.type == "POBJECT_ATTRIBUTES" ) ?  xlate< STR* >( ( OBJECT_ATTRIBUTES* ) t.val )->poststr  :
+				"";
+		
 };
 translator WSTR < struct typeAndVal t > {
 	wstr = 
@@ -217,16 +245,17 @@ translator argval < int argi > {
 translator struct typeAndVal < int argi > { val = xlate< argval >( argi - 1 ).val; type = ArgTypeMap[ probefunc , argi ]; };			
 inline uint64_t argc =  argCount[probefunc] 	;	
 	
-syscall::*:entry /started/
+syscall::*:entry/started/
 {	
-	printf( "\n%-16s( %5s:%-5s ) - %-28s ( %s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws%s%s%ws )\n",execname, lltostr(pid), lltostr(tid), probefunc, 
-				(argc > 0) ? xlate< STR >( *xlate< typeAndVal* >( 1 ) ).str : "" ,(argc > 0) ?  xlate< WSTR >( *xlate< typeAndVal* >( 1 ) ).wstr : wEmpty.wstr  , (argc > 1) ? " , " : "" ,
-				(argc > 1) ? xlate< STR >( *xlate< typeAndVal* >( 2 ) ).str : "" ,(argc > 1) ?  xlate< WSTR >( *xlate< typeAndVal* >( 2 ) ).wstr : wEmpty.wstr  , (argc > 2) ? " , " : "" ,  
-				(argc > 2) ? xlate< STR >( *xlate< typeAndVal* >( 3 ) ).str : "" ,(argc > 2) ?  xlate< WSTR >( *xlate< typeAndVal* >( 3 ) ).wstr : wEmpty.wstr  , (argc > 3) ? " , " : "" ,
-				(argc > 3) ? xlate< STR >( *xlate< typeAndVal* >( 4 ) ).str : "" ,(argc > 3) ?  xlate< WSTR >( *xlate< typeAndVal* >( 4 ) ).wstr : wEmpty.wstr  , (argc > 4) ? " , " : "" ,  
-				(argc > 4) ? xlate< STR >( *xlate< typeAndVal* >( 5 ) ).str : "" ,(argc > 4) ?  xlate< WSTR >( *xlate< typeAndVal* >( 5 ) ).wstr : wEmpty.wstr  , (argc > 5) ? " , " : "" , 
-				(argc > 5) ? xlate< STR >( *xlate< typeAndVal* >( 6 ) ).str : "" ,(argc > 5) ?  xlate< WSTR >( *xlate< typeAndVal* >( 6 ) ).wstr : wEmpty.wstr  , (argc > 6) ? " , " : "" , 
-				(argc > 6) ? xlate< STR >( *xlate< typeAndVal* >( 7 ) ).str : "" ,(argc > 6) ?  xlate< WSTR >( *xlate< typeAndVal* >( 7 ) ).wstr : wEmpty.wstr  , (argc > 7) ? " , " : "" , 
-				(argc > 7) ? xlate< STR >( *xlate< typeAndVal* >( 8 ) ).str : "" ,(argc > 7) ?  xlate< WSTR >( *xlate< typeAndVal* >( 8 ) ).wstr : wEmpty.wstr   
+ 
+	printf( "\n%-16s( %5s:%-5s ) - %-28s ( %s%ws%s%s%s%ws%s%s%s%ws%s%s%s%ws%s%s%s%ws%s%s%s%ws%s%s%s%ws%s%s%s%ws%s )\n",execname, lltostr(pid), lltostr(tid), probefunc, 
+				((argc > 0) ? xlate< STR >( *xlate< typeAndVal* >( 1 ) ).str : "") , ((argc > 0) ?  xlate< WSTR >( *xlate< typeAndVal* >( 1 ) ).wstr : wEmpty.wstr) ,  ((argc > 0) ? xlate< STR >( *xlate< typeAndVal* >( 1 ) ).poststr : "")   , (argc > 1) ? " , " : "" ,
+				((argc > 1) ? xlate< STR >( *xlate< typeAndVal* >( 2 ) ).str : "") , ((argc > 1) ?  xlate< WSTR >( *xlate< typeAndVal* >( 2 ) ).wstr : wEmpty.wstr) ,  ((argc > 1) ? xlate< STR >( *xlate< typeAndVal* >( 2 ) ).poststr : "")   , (argc > 2) ? " , " : "" ,  
+				((argc > 2) ? xlate< STR >( *xlate< typeAndVal* >( 3 ) ).str : "") , ((argc > 2) ?  xlate< WSTR >( *xlate< typeAndVal* >( 3 ) ).wstr : wEmpty.wstr) ,  ((argc > 2) ? xlate< STR >( *xlate< typeAndVal* >( 3 ) ).poststr : "")   , (argc > 3) ? " , " : "" ,
+				((argc > 3) ? xlate< STR >( *xlate< typeAndVal* >( 4 ) ).str : "") , ((argc > 3) ?  xlate< WSTR >( *xlate< typeAndVal* >( 4 ) ).wstr : wEmpty.wstr) ,  ((argc > 3) ? xlate< STR >( *xlate< typeAndVal* >( 4 ) ).poststr : "")   , (argc > 4) ? " , " : "" ,  
+				((argc > 4) ? xlate< STR >( *xlate< typeAndVal* >( 5 ) ).str : "") , ((argc > 4) ?  xlate< WSTR >( *xlate< typeAndVal* >( 5 ) ).wstr : wEmpty.wstr) ,  ((argc > 4) ? xlate< STR >( *xlate< typeAndVal* >( 5 ) ).poststr : "")   , (argc > 5) ? " , " : "" , 
+				((argc > 5) ? xlate< STR >( *xlate< typeAndVal* >( 6 ) ).str : "") , ((argc > 5) ?  xlate< WSTR >( *xlate< typeAndVal* >( 6 ) ).wstr : wEmpty.wstr) ,  ((argc > 5) ? xlate< STR >( *xlate< typeAndVal* >( 6 ) ).poststr : "")   , (argc > 6) ? " , " : "" , 
+				((argc > 6) ? xlate< STR >( *xlate< typeAndVal* >( 7 ) ).str : "") , ((argc > 6) ?  xlate< WSTR >( *xlate< typeAndVal* >( 7 ) ).wstr : wEmpty.wstr) ,  ((argc > 6) ? xlate< STR >( *xlate< typeAndVal* >( 7 ) ).poststr : "")   , (argc > 7) ? " , " : "" , 
+				((argc > 7) ? xlate< STR >( *xlate< typeAndVal* >( 8 ) ).str : "") , ((argc > 7) ?  xlate< WSTR >( *xlate< typeAndVal* >( 8 ) ).wstr : wEmpty.wstr) ,  ((argc > 7) ? xlate< STR >( *xlate< typeAndVal* >( 8 ) ).poststr : "")    
 	);																					 
 }
